@@ -18,13 +18,17 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
     @Override
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
         int baseOrder = 0;
+        boolean foundRoutineLineage = false;
         for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
             String line = parsedStatement.slice().rawLines().get(i);
             int lineNo = parsedStatement.slice().startLine() + i;
             if (RoutineLineageSupport.extractLine(line, lineNo, parsedStatement, context, collector, baseOrder)) {
-                return;
+                foundRoutineLineage = true;
             }
             baseOrder += 100;
+        }
+        if (foundRoutineLineage) {
+            return;
         }
 
         if (RoutineLineageSupport.extractSetAssignment(

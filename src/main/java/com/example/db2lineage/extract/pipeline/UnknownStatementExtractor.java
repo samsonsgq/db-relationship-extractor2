@@ -14,12 +14,16 @@ public final class UnknownStatementExtractor implements StatementExtractor {
 
     @Override
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
+        boolean foundRoutineLineage = false;
         for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
             String line = parsedStatement.slice().rawLines().get(i);
             int lineNo = parsedStatement.slice().startLine() + i;
             if (RoutineLineageSupport.extractLine(line, lineNo, parsedStatement, context, collector, i * 100)) {
-                return;
+                foundRoutineLineage = true;
             }
+        }
+        if (foundRoutineLineage) {
+            return;
         }
         if (RoutineLineageSupport.extractSetAssignment(
                 parsedStatement.slice().statementText(),

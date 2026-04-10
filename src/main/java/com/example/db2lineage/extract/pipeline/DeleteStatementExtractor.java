@@ -22,11 +22,17 @@ public final class DeleteStatementExtractor implements StatementExtractor {
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
         Delete delete = (Delete) parsedStatement.statement().orElseThrow();
         String targetName = delete.getTable() == null ? null : delete.getTable().getFullyQualifiedName();
+        TargetObjectType deleteTargetType = context.schemaMetadataService()
+                .resolveObjectType(targetName)
+                .orElse(TargetObjectType.TABLE);
+        RelationshipType deleteRelationship = deleteTargetType == TargetObjectType.VIEW
+                ? RelationshipType.DELETE_VIEW
+                : RelationshipType.DELETE_TABLE;
         collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
                 context,
                 parsedStatement,
-                RelationshipType.DELETE_TABLE,
-                TargetObjectType.TABLE,
+                deleteRelationship,
+                deleteTargetType,
                 targetName,
                 0
         ));

@@ -322,6 +322,85 @@ class ExtractionPipelineTest {
     }
 
     @Test
+    void phase12UsesViewAwareReadAndDeleteRelationshipsWhenMetadataResolvesView() {
+        SqlSourceFile sourceFile = sqlFile("phase12_view_rw.sql", List.of(
+                "CREATE VIEW V_SRC AS SELECT ID FROM T_SRC;",
+                "SELECT ID FROM V_SRC;",
+                "DELETE FROM V_SRC WHERE ID = 1;"
+        ), SqlSourceCategory.VIEW_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        List<ParsedStatementResult> parsed = List.of(
+                parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0)),
+                parser.parse(slice(sourceFile, 2, sourceFile.rawLines().get(1), 1)),
+                parser.parse(slice(sourceFile, 3, sourceFile.rawLines().get(2), 2))
+        );
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)),
+                parsed
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_VIEW && "V_SRC".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_VIEW && "V_SRC".equals(r.targetObject())));
+    }
+
+    @Test
+    void phase12EmitsControlFlowConditionRowsFromRoutineLines() {
+        SqlSourceFile sourceFile = sqlFile("phase12_control_flow.sql", List.of(
+                "CREATE PROCEDURE P_CTRL()",
+                "BEGIN",
+                "  IF V_COUNT > 0 THEN",
+                "    SET V_FLAG = 1;",
+                "  END IF;",
+                "END"
+        ), SqlSourceCategory.SP_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                sourceFile.getLineCount(),
+                sourceFile.rawLines(),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CONTROL_FLOW_CONDITION && "V_COUNT".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CONTROL_FLOW_CONDITION && "CONSTANT:0".equals(r.sourceField())));
+    }
+
+    @Test
+    void phase12DoesNotSilentlySkipLaterProceduralLinesInUnsupportedSlices() {
+        SqlSourceFile sourceFile = sqlFile("phase12_multi_line_fallback.sql", List.of(
+                "GET DIAGNOSTICS V_SQLSTATE = RETURNED_SQLSTATE;",
+                "EXECUTE IMMEDIATE V_SQL;"
+        ), SqlSourceCategory.EXTRA_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                sourceFile.getLineCount(),
+                sourceFile.rawLines(),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC));
+    }
+
+    @Test
     void phase11LineAnchoringAndPerLineSequenceUseOriginalRawSqlLines() {
         List<String> rawLines = List.of(
                 "INSERT INTO T_DST (A, B)",
