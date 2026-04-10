@@ -54,7 +54,7 @@ class ExtractionPipelineTest {
                 List.of(select, diagnostics)
         );
 
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UNKNOWN));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP));
     }
 
     @Test
@@ -140,10 +140,7 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_TABLE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_FUNCTION));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_PROCEDURE));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UNKNOWN));
-        assertTrue(rows.stream().anyMatch(r ->
-                r.relationship() == RelationshipType.UNKNOWN
-                        && "UNKNOWN_UNSUPPORTED_STATEMENT".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP));
     }
 
     @Test
@@ -252,6 +249,73 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_SET_MAP && "B".equals(r.targetField()) && "S.Y".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP && "B".equals(r.targetField()) && "CONSTANT:0".equals(r.sourceField())));
         assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP && r.sourceField().startsWith("FUNCTION:")));
+    }
+
+    @Test
+    void phase10RoutineSpecificMappingsAndFallbacks() {
+        SqlSourceFile sourceFile = sqlFile("phase10_proc.sql", List.of(
+                "CREATE PROCEDURE P_LOAD(IN P_ID INT, INOUT P_STATUS VARCHAR(20), OUT P_TS TIMESTAMP)",
+                "BEGIN",
+                "  DECLARE C_DEAL CURSOR FOR SELECT DEAL_NUM FROM T_DEAL;",
+                "  OPEN C_DEAL;",
+                "  FETCH C_DEAL INTO V_REC.DEAL_NUM, V_STATUS;",
+                "  CALL P_AUDIT(P_ID, V_STATUS, P_TS);",
+                "  SET V_USER = USER;",
+                "  SET V_DT = CURRENT DATE;",
+                "  SET V_TS = CURRENT TIMESTAMP;",
+                "  GET DIAGNOSTICS V_SQLSTATE = RETURNED_SQLSTATE;",
+                "  DECLARE CONTINUE HANDLER FOR SQLEXCEPTION SET V_ERR = 1;",
+                "  EXECUTE IMMEDIATE V_SQL;",
+                "END"
+        ), SqlSourceCategory.SP_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                sourceFile.getLineCount(),
+                sourceFile.rawLines(),
+                0
+        ));
+        List<ParsedStatementResult> metadataParsed = List.of(
+                parsed,
+                parser.parse(slice(sourceFile, 14, "CREATE PROCEDURE P_AUDIT(IN A_ID INT, INOUT A_STATUS VARCHAR(20), OUT A_TS TIMESTAMP)", 1))
+        );
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(metadataParsed)), List.of(parsed));
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_DEFINE && "C_DEAL".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_READ && "C_DEAL".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_FETCH_MAP && "V_REC.DEAL_NUM".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "A_ID".equals(r.targetField()) && "P_ID".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "A_STATUS".equals(r.targetField()) && "V_STATUS".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "A_TS".equals(r.targetField()) && "P_TS".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP && "CONSTANT:USER".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP && "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP && "CONSTANT:RETURNED_SQLSTATE".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP && "V_ERR".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC && "UNKNOWN_DYNAMIC_SQL".equals(r.targetObject())));
+    }
+
+    @Test
+    void phase10FunctionAndProcedureParamFallbackToPositionalSlotsWhenUnknown() {
+        SqlSourceFile sourceFile = sqlFile("phase10_fn.sql", List.of(
+                "SET V_OUT = FN_SCORE(P_ID, CURRENT DATE, 1);",
+                "CALL P_LOG(V_A, V_B);"
+        ), SqlSourceCategory.EXTRA_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        List<ParsedStatementResult> parsed = List.of(
+                parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0)),
+                parser.parse(slice(sourceFile, 2, sourceFile.rawLines().get(1), 1))
+        );
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)), parsed);
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$1".equals(r.targetField()) && "P_ID".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$2".equals(r.targetField()) && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$3".equals(r.targetField()) && "CONSTANT:1".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$2".equals(r.targetField())));
     }
 
     private SqlSourceFile sqlFile(String name, List<String> lines, SqlSourceCategory category) {

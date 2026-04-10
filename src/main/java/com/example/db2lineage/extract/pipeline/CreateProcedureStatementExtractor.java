@@ -27,6 +27,12 @@ public final class CreateProcedureStatementExtractor implements StatementExtract
                 name,
                 0
         ));
+
+        for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
+            String line = parsedStatement.slice().rawLines().get(i);
+            int lineNo = parsedStatement.slice().startLine() + i;
+            RoutineLineageSupport.extractLine(line, lineNo, parsedStatement, context, collector, 1_000 + (i * 100));
+        }
     }
 
     private String extractName(List<String> declarationParts) {

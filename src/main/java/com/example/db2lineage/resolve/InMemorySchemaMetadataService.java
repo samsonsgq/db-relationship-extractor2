@@ -5,6 +5,7 @@ import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.create.function.CreateFunction;
+import net.sf.jsqlparser.statement.create.procedure.CreateProcedure;
 import net.sf.jsqlparser.statement.create.table.CreateTable;
 import net.sf.jsqlparser.statement.create.view.CreateView;
 import net.sf.jsqlparser.statement.select.Select;
@@ -16,8 +17,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class InMemorySchemaMetadataService implements SchemaMetadataService {
+    private static final Pattern ROUTINE_SIGNATURE_PREFIX_PATTERN = Pattern.compile(
+            "(?is)\\bCREATE\\s+(?:OR\\s+REPLACE\\s+)?(?:FUNCTION|PROCEDURE)\\s+([A-Z0-9_.$\\\"]+)\\s*\\("
+    );
     private final Map<String, TargetObjectType> objectTypes;
     private final Map<String, List<String>> objectColumns;
     private final Map<String, CallableSignature> callables;
@@ -73,7 +79,13 @@ public final class InMemorySchemaMetadataService implements SchemaMetadataServic
                 String functionName = first(createFunction.getFunctionDeclarationParts());
                 if (functionName != null) {
                     types.put(key(functionName), TargetObjectType.FUNCTION);
-                    signatures.put(key(functionName), new CallableSignature(functionName, List.of()));
+                    signatures.put(key(functionName), new CallableSignature(functionName, parseArgumentNames(parsedStatement.slice().statementText())));
+                }
+            } else if (statement instanceof CreateProcedure createProcedure) {
+                String procedureName = first(createProcedure.getFunctionDeclarationParts());
+                if (procedureName != null) {
+                    types.put(key(procedureName), TargetObjectType.PROCEDURE);
+                    signatures.put(key(procedureName), new CallableSignature(procedureName, parseArgumentNames(parsedStatement.slice().statementText())));
                 }
             }
         }
@@ -93,7 +105,16 @@ public final class InMemorySchemaMetadataService implements SchemaMetadataServic
 
     @Override
     public Optional<CallableSignature> resolveCallableSignature(String callableName) {
-        return Optional.ofNullable(callables.get(key(callableName)));
+        CallableSignature signature = callables.get(key(callableName));
+        if (signature != null) {
+            return Optional.of(signature);
+        }
+        String normalized = callableName == null ? "" : callableName.trim();
+        int dot = normalized.lastIndexOf('.');
+        if (dot > 0) {
+            return Optional.ofNullable(callables.get(key(normalized.substring(dot + 1))));
+        }
+        return Optional.empty();
     }
 
     @Override
@@ -113,5 +134,84 @@ public final class InMemorySchemaMetadataService implements SchemaMetadataServic
             return "";
         }
         return objectName.trim().toUpperCase(Locale.ROOT);
+    }
+
+    private static List<String> parseArgumentNames(String statementText) {
+        if (statementText == null || statementText.isBlank()) {
+            return List.of();
+        }
+        String argsBlock = extractRoutineArgsBlock(statementText);
+        if (argsBlock.isBlank()) {
+            return List.of();
+        }
+        List<String> names = new ArrayList<>();
+        for (String rawArg : splitTopLevelCsv(argsBlock)) {
+            String cleaned = rawArg.trim().replaceAll("\\s+", " ");
+            if (cleaned.isBlank()) {
+                continue;
+            }
+            String[] tokens = cleaned.split(" ");
+            int idx = 0;
+            while (idx < tokens.length && (
+                    tokens[idx].equalsIgnoreCase("IN")
+                            || tokens[idx].equalsIgnoreCase("OUT")
+                            || tokens[idx].equalsIgnoreCase("INOUT")
+            )) {
+                idx++;
+            }
+            if (idx < tokens.length) {
+                names.add(tokens[idx].replace("\"", ""));
+            }
+        }
+        return List.copyOf(names);
+    }
+
+    private static List<String> splitTopLevelCsv(String value) {
+        if (value == null || value.isBlank()) {
+            return List.of();
+        }
+        List<String> items = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int depth = 0;
+        for (int i = 0; i < value.length(); i++) {
+            char c = value.charAt(i);
+            if (c == '(') {
+                depth++;
+                current.append(c);
+            } else if (c == ')') {
+                depth = Math.max(0, depth - 1);
+                current.append(c);
+            } else if (c == ',' && depth == 0) {
+                items.add(current.toString());
+                current.setLength(0);
+            } else {
+                current.append(c);
+            }
+        }
+        if (!current.isEmpty()) {
+            items.add(current.toString());
+        }
+        return List.copyOf(items);
+    }
+
+    private static String extractRoutineArgsBlock(String statementText) {
+        Matcher matcher = ROUTINE_SIGNATURE_PREFIX_PATTERN.matcher(statementText);
+        if (!matcher.find()) {
+            return "";
+        }
+        int start = matcher.end() - 1;
+        int depth = 0;
+        for (int i = start; i < statementText.length(); i++) {
+            char c = statementText.charAt(i);
+            if (c == '(') {
+                depth++;
+            } else if (c == ')') {
+                depth--;
+                if (depth == 0) {
+                    return statementText.substring(start + 1, i);
+                }
+            }
+        }
+        return "";
     }
 }

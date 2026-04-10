@@ -36,6 +36,16 @@ public final class ExecuteStatementExtractor implements StatementExtractor {
             ));
             return;
         }
+        if (RoutineLineageSupport.extractLine(
+                ObjectRelationshipSupport.firstLine(parsedStatement.slice()),
+                parsedStatement.slice().startLine(),
+                parsedStatement,
+                context,
+                collector,
+                0
+        )) {
+            return;
+        }
 
         collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
                 context,
