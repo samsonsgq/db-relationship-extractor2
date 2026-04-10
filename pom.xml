@@ -9,7 +9,7 @@
     <name>db2-relationship-extractor</name>
 
     <properties>
-        <maven.compiler.release>11</maven.compiler.release>
+        <maven.compiler.release>17</maven.compiler.release>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <junit.jupiter.version>5.11.4</junit.jupiter.version>
         <jsqlparser.version>5.1</jsqlparser.version>
