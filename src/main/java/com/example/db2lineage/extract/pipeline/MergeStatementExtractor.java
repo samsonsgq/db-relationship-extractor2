@@ -6,6 +6,7 @@ import com.example.db2lineage.model.RelationshipType;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.statement.merge.Merge;
+import net.sf.jsqlparser.statement.merge.MergeUpdate;
 import net.sf.jsqlparser.statement.select.WithItem;
 
 import java.util.HashSet;
@@ -59,6 +60,22 @@ public final class MergeStatementExtractor implements StatementExtractor {
             collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
                     context, parsedStatement, relationship, targetType, ref.objectName(), naturalOrder++
             ));
+        }
+
+        ExpressionTokenSupport.addExpressionRows(RelationshipType.MERGE_MATCH, merge.getOnCondition(), parsedStatement, context, collector, naturalOrder++);
+
+        MergeUpdate mergeUpdate = merge.getMergeUpdate();
+        if (mergeUpdate != null && mergeUpdate.getUpdateSets() != null) {
+            for (var updateSet : mergeUpdate.getUpdateSets()) {
+                if (updateSet.getValues() == null) {
+                    continue;
+                }
+                for (Object value : updateSet.getValues()) {
+                    if (value instanceof net.sf.jsqlparser.expression.Expression expression) {
+                        ExpressionTokenSupport.addExpressionRows(RelationshipType.UPDATE_SET, expression, parsedStatement, context, collector, naturalOrder++);
+                    }
+                }
+            }
         }
     }
 }

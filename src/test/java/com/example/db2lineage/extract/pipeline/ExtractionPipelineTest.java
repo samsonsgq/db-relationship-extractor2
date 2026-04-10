@@ -53,8 +53,7 @@ class ExtractionPipelineTest {
                 List.of(select, diagnostics)
         );
 
-        assertEquals(1, rows.size());
-        assertEquals(RelationshipType.UNKNOWN, rows.get(0).relationship());
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UNKNOWN));
     }
 
     @Test
@@ -100,8 +99,8 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_TABLE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INTO));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.TRUNCATE_TABLE));
-        assertTrue(rows.stream().allMatch(r -> r.sourceField().isEmpty() || r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC));
-        assertTrue(rows.stream().allMatch(r -> r.targetField().isEmpty()));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_SET));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_MATCH));
     }
 
     @Test
@@ -164,6 +163,51 @@ class ExtractionPipelineTest {
         assertEquals(RelationshipType.DYNAMIC_SQL_EXEC, rows.get(0).relationship());
         assertEquals("UNKNOWN_DYNAMIC_SQL", rows.get(0).targetObject());
         assertEquals("V_SQL", rows.get(0).sourceField());
+    }
+
+
+    @Test
+    void extractSelectFieldAndExpressionAndClauses() {
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.VIEW_DIR,
+                Path.of("/tmp/field_usage.sql"),
+                Path.of("field_usage.sql"),
+                "SELECT T.ID, T.AMT + 1 AS AMT2 FROM T1 T JOIN T2 X ON T.ID = X.ID WHERE T.FLAG = 'Y' GROUP BY T.ID ORDER BY T.ID;",
+                List.of("SELECT T.ID, T.AMT + 1 AS AMT2 FROM T1 T JOIN T2 X ON T.ID = X.ID WHERE T.FLAG = 'Y' GROUP BY T.ID ORDER BY T.ID;")
+        );
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1,
+                "SELECT T.ID, T.AMT + 1 AS AMT2 FROM T1 T JOIN T2 X ON T.ID = X.ID WHERE T.FLAG = 'Y' GROUP BY T.ID ORDER BY T.ID;", 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), List.of(parsed));
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD && r.sourceField().equals("T.ID")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR && r.sourceField().equals("T.AMT")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR && r.sourceField().equals("CONSTANT:1")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.WHERE && r.sourceField().equals("CONSTANT:'Y'")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.JOIN_ON && r.sourceField().equals("X.ID")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.GROUP_BY && r.sourceField().equals("T.ID")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.ORDER_BY && r.sourceField().equals("T.ID")));
+    }
+
+    @Test
+    void extractScalarFunctionReturnExpressionDependencies() {
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.FUNCTION_DIR,
+                Path.of("/tmp/return_expr.sql"),
+                Path.of("return_expr.sql"),
+                "CREATE FUNCTION F_RET(P1 INT) RETURNS INT RETURN P1 + 5;",
+                List.of("CREATE FUNCTION F_RET(P1 INT) RETURNS INT RETURN P1 + 5;")
+        );
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1,
+                "CREATE FUNCTION F_RET(P1 INT) RETURNS INT RETURN P1 + 5;", 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), List.of(parsed));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && r.sourceField().equals("P1")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && r.sourceField().equals("CONSTANT:5")));
     }
 
     private StatementSlice slice(SqlSourceFile sourceFile, int line, String sql, int ordinal) {
