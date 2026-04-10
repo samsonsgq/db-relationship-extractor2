@@ -251,7 +251,7 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP && "B".equals(r.targetField()) && "S.Z".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_TARGET_COL && "A".equals(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_SET_MAP && "B".equals(r.targetField()) && "S.Y".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP && "B".equals(r.targetField()) && "CONSTANT:0".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP && "B".equals(r.targetField()) && "COALESCE".equals(r.sourceField())));
         assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP && r.sourceField().startsWith("FUNCTION:")));
     }
 

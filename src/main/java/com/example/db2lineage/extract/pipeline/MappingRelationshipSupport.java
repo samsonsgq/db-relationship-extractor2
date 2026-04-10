@@ -85,6 +85,11 @@ final class MappingRelationshipSupport {
         if (expression instanceof CaseExpression caseExpression) {
             return fromCaseExpression(caseExpression, slice);
         }
+        if (containsFunction(expression)) {
+            // Conservative rule: avoid mapping function argument tokens directly into assignment targets.
+            // Keep mapping truthful by relying on FUNCTION_EXPR_MAP and dedicated parameter mappings.
+            return List.of();
+        }
         List<ExpressionTokenSupport.TokenUse> usageTokens = ExpressionTokenSupport.collect(expression, slice);
         List<ExpressionTokenSupport.TokenUse> filtered = new ArrayList<>();
         Set<String> seen = new LinkedHashSet<>();
@@ -123,6 +128,18 @@ final class MappingRelationshipSupport {
             }
         }
         return List.copyOf(deduped);
+    }
+
+    private static boolean containsFunction(Expression expression) {
+        final boolean[] found = {false};
+        expression.accept(new net.sf.jsqlparser.expression.ExpressionVisitorAdapter<Void>() {
+            @Override
+            public <S> Void visit(Function function, S context) {
+                found[0] = true;
+                return null;
+            }
+        }, null);
+        return found[0];
     }
 
     private static void addFunctionExpressionRows(String targetObject,
