@@ -16,7 +16,7 @@ import java.util.stream.Stream;
 
 public final class SqlSourceFileLoader {
 
-    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".sql", ".ddl");
+    private static final Set<String> SUPPORTED_EXTENSIONS = Set.of(".sql", ".ddl", ".sqll");
 
     public List<SqlSourceFile> load(CliArguments args) {
         List<SourceRoot> sourceRoots = new ArrayList<>();

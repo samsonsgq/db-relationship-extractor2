@@ -80,6 +80,7 @@ class SqlSourceFileLoaderTest {
 
         writeFile(tableDir.resolve("a.sql"), "VALUES 1;\n");
         writeFile(tableDir.resolve("nested/b.ddl"), "VALUES 2;\n");
+        writeFile(tableDir.resolve("nested/c.sqll"), "VALUES 3;\n");
         writeFile(tableDir.resolve("nested/c.txt"), "SHOULD_NOT_LOAD\n");
         writeFile(tableDir.resolve(".hidden.sql"), "SHOULD_NOT_LOAD\n");
         writeFile(tableDir.resolve(".hidden-dir/d.sql"), "SHOULD_NOT_LOAD\n");
@@ -88,7 +89,7 @@ class SqlSourceFileLoaderTest {
         List<SqlSourceFile> files = new SqlSourceFileLoader().load(cli);
 
         List<String> relativePaths = files.stream().map(f -> f.relativePath().toString().replace('\\', '/')).toList();
-        assertEquals(List.of("a.sql", "nested/b.ddl"), relativePaths);
+        assertEquals(List.of("a.sql", "nested/b.ddl", "nested/c.sqll"), relativePaths);
         assertFalse(relativePaths.contains("nested/c.txt"));
         assertFalse(relativePaths.contains(".hidden.sql"));
     }

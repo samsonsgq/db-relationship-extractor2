@@ -62,6 +62,7 @@ public final class CreateFunctionStatementExtractor implements StatementExtracto
                 // narrow fallback: skip unparseable return expression tokenization
             }
         }
+        RoutineBodyStatementSupport.extractNestedStatements(parsedStatement, context, collector);
     }
 
     private String extractName(List<String> declarationParts) {

@@ -6,6 +6,7 @@ import com.example.db2lineage.model.RelationshipType;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.statement.insert.Insert;
+import net.sf.jsqlparser.statement.select.Values;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
@@ -84,8 +85,7 @@ public final class InsertStatementExtractor implements StatementExtractor {
         } else {
             targetColumns.addAll(context.schemaMetadataService().resolveTargetColumnListWhenSafelyKnown(targetName));
         }
-        PlainSelect plainSelect = select.getPlainSelect();
-        if (plainSelect != null && plainSelect.getSelectItems() != null) {
+        if (select instanceof PlainSelect plainSelect && plainSelect.getSelectItems() != null) {
             List<SelectItem<?>> items = plainSelect.getSelectItems();
             int mappingSlots = Math.min(targetColumns.size(), items.size());
             for (int i = 0; i < mappingSlots; i++) {
@@ -99,6 +99,28 @@ public final class InsertStatementExtractor implements StatementExtractor {
                         TargetObjectType.TABLE,
                         targetColumns.get(i),
                         item.getExpression(),
+                        parsedStatement,
+                        context,
+                        collector,
+                    naturalOrder++
+                );
+            }
+            return;
+        }
+
+        if (select instanceof Values values && values.getExpressions() != null) {
+            int mappingSlots = Math.min(targetColumns.size(), values.getExpressions().size());
+            for (int i = 0; i < mappingSlots; i++) {
+                var expression = values.getExpressions().get(i);
+                if (expression == null) {
+                    continue;
+                }
+                MappingRelationshipSupport.addConciseMappingRows(
+                        RelationshipType.INSERT_SELECT_MAP,
+                        targetName,
+                        TargetObjectType.TABLE,
+                        targetColumns.get(i),
+                        expression,
                         parsedStatement,
                         context,
                         collector,
