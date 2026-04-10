@@ -289,15 +289,27 @@ class ExtractionPipelineTest {
 
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_DEFINE && "C_DEAL".equals(r.targetObject())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_READ && "C_DEAL".equals(r.targetObject())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_FETCH_MAP && "V_REC.DEAL_NUM".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_FETCH_MAP
+                && "P_LOAD".equals(r.targetObject())
+                && "V_REC.DEAL_NUM".equals(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "A_ID".equals(r.targetField()) && "P_ID".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "A_STATUS".equals(r.targetField()) && "V_STATUS".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "A_TS".equals(r.targetField()) && "P_TS".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP && "CONSTANT:USER".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP && "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP && "CONSTANT:RETURNED_SQLSTATE".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP && "V_ERR".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "P_LOAD".equals(r.targetObject())
+                && "CONSTANT:USER".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "P_LOAD".equals(r.targetObject())
+                && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "P_LOAD".equals(r.targetObject())
+                && "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "P_LOAD".equals(r.targetObject())
+                && "CONSTANT:RETURNED_SQLSTATE".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
+                && "P_LOAD".equals(r.targetObject())
+                && "V_ERR".equals(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC && "UNKNOWN_DYNAMIC_SQL".equals(r.targetObject())));
     }
 
@@ -317,6 +329,10 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$1".equals(r.targetField()) && "P_ID".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$2".equals(r.targetField()) && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$3".equals(r.targetField()) && "CONSTANT:1".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                && "phase10_fn.sql".equals(r.targetObject())
+                && "V_OUT".equals(r.targetField())
+                && "FN_SCORE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$2".equals(r.targetField())));
     }
