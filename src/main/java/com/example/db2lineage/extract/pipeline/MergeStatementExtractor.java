@@ -6,7 +6,9 @@ import com.example.db2lineage.model.RelationshipType;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.statement.merge.Merge;
+import net.sf.jsqlparser.statement.merge.MergeInsert;
 import net.sf.jsqlparser.statement.merge.MergeUpdate;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.WithItem;
 
 import java.util.HashSet;
@@ -67,13 +69,76 @@ public final class MergeStatementExtractor implements StatementExtractor {
         MergeUpdate mergeUpdate = merge.getMergeUpdate();
         if (mergeUpdate != null && mergeUpdate.getUpdateSets() != null) {
             for (var updateSet : mergeUpdate.getUpdateSets()) {
+                if (updateSet.getColumns() != null) {
+                    for (Column column : updateSet.getColumns()) {
+                        MappingRelationshipSupport.addTargetColumnRow(
+                                RelationshipType.MERGE_TARGET_COL,
+                                target,
+                                TargetObjectType.TABLE,
+                                column.getColumnName(),
+                                parsedStatement,
+                                context,
+                                collector,
+                                naturalOrder++
+                        );
+                    }
+                }
                 if (updateSet.getValues() == null) {
                     continue;
                 }
+                int colIndex = 0;
                 for (Object value : updateSet.getValues()) {
                     if (value instanceof net.sf.jsqlparser.expression.Expression expression) {
                         ExpressionTokenSupport.addExpressionRows(RelationshipType.UPDATE_SET, expression, parsedStatement, context, collector, naturalOrder++);
+                        String targetField = updateSet.getColumns() != null && colIndex < updateSet.getColumns().size()
+                                ? updateSet.getColumns().get(colIndex).getColumnName() : "";
+                        if (!targetField.isBlank()) {
+                            MappingRelationshipSupport.addConciseMappingRows(
+                                    RelationshipType.MERGE_SET_MAP,
+                                    target,
+                                    TargetObjectType.TABLE,
+                                    targetField,
+                                    expression,
+                                    parsedStatement,
+                                    context,
+                                    collector,
+                                    naturalOrder++
+                            );
+                        }
                     }
+                    colIndex++;
+                }
+            }
+        }
+
+        MergeInsert mergeInsert = merge.getMergeInsert();
+        if (mergeInsert != null && mergeInsert.getColumns() != null && mergeInsert.getValues() != null) {
+            int slots = Math.min(mergeInsert.getColumns().size(), mergeInsert.getValues().size());
+            for (int i = 0; i < slots; i++) {
+                Column targetColumn = mergeInsert.getColumns().get(i);
+                Object value = mergeInsert.getValues().get(i);
+                MappingRelationshipSupport.addTargetColumnRow(
+                        RelationshipType.MERGE_TARGET_COL,
+                        target,
+                        TargetObjectType.TABLE,
+                        targetColumn.getColumnName(),
+                        parsedStatement,
+                        context,
+                        collector,
+                        naturalOrder++
+                );
+                if (value instanceof net.sf.jsqlparser.expression.Expression expression) {
+                    MappingRelationshipSupport.addConciseMappingRows(
+                            RelationshipType.MERGE_INSERT_MAP,
+                            target,
+                            TargetObjectType.TABLE,
+                            targetColumn.getColumnName(),
+                            expression,
+                            parsedStatement,
+                            context,
+                            collector,
+                            naturalOrder++
+                    );
                 }
             }
         }
