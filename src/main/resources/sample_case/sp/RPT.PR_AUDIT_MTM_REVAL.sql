@@ -1,0 +1,27 @@
+CREATE OR REPLACE PROCEDURE RPT.PR_AUDIT_MTM_REVAL
+(
+    IN P_CUST_NUM VARCHAR(20),
+    IN P_DEAL_NUM VARCHAR(20),
+    IN P_ACTION   VARCHAR(20)
+)
+LANGUAGE SQL
+MODIFIES SQL DATA
+BEGIN
+    INSERT INTO RPT.MTM_REVAL_AUDIT
+    (
+        AUDIT_ID,
+        CUST_NUM,
+        DEAL_NUM,
+        ACTION_CD,
+        AUDIT_TS
+    )
+    VALUES
+    (
+        1,
+        P_CUST_NUM,
+        P_DEAL_NUM,
+        P_ACTION,
+        CURRENT TIMESTAMP
+    );
+END
+@

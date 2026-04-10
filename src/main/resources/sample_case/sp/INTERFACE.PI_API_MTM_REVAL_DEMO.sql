@@ -1,0 +1,206 @@
+CREATE OR REPLACE PROCEDURE INTERFACE.PI_API_MTM_REVAL_DEMO
+(
+    IN P_CUST_NUM VARCHAR(20)
+)
+LANGUAGE SQL
+MODIFIES SQL DATA
+BEGIN
+    DECLARE V_STATUS VARCHAR(20);
+
+    DECLARE GLOBAL TEMPORARY TABLE SESSION.T_MTM_STAGE
+    (
+        CUST_NUM      VARCHAR(20),
+        DEAL_NUM      VARCHAR(20),
+        DEAL_TYPE     VARCHAR(10),
+        CUR_MTM_AMT   DECIMAL(18,2)
+    )
+    WITH REPLACE
+    ON COMMIT PRESERVE ROWS;
+
+    DECLARE GLOBAL TEMPORARY TABLE SESSION.T_MTM_STAGE_ALL
+    (
+        CUST_NUM      VARCHAR(20),
+        DEAL_NUM      VARCHAR(20),
+        DEAL_TYPE     VARCHAR(10),
+        CUR_MTM_AMT   DECIMAL(18,2)
+    )
+    WITH REPLACE
+    ON COMMIT PRESERVE ROWS;
+
+    SET V_STATUS = INTERFACE.FN_REL_DEMO(P_CUST_NUM);
+
+    INSERT INTO SESSION.T_MTM_STAGE
+    (
+        CUST_NUM,
+        DEAL_NUM,
+        DEAL_TYPE,
+        CUR_MTM_AMT
+    )
+    WITH BASE_DATA AS
+    (
+        SELECT
+            V.CUST_NUM,
+            V.DEAL_NUM,
+            V.DEAL_TYPE,
+            V.CUR_MTM_AMT
+        FROM INTERFACE.V_API_MTM_REVAL V
+        WHERE V.CUST_NUM = P_CUST_NUM
+
+        UNION ALL
+
+        SELECT
+            I.CUST_NUM,
+            I.DEAL_NUM,
+            I.DEAL_TYPE,
+            I.CUR_MTM_AMT
+        FROM INTERFACE.API_MTM_REVAL I
+        WHERE I.CUST_NUM = P_CUST_NUM
+    )
+    SELECT
+        B.CUST_NUM,
+        B.DEAL_NUM,
+        B.DEAL_TYPE,
+        B.CUR_MTM_AMT
+    FROM BASE_DATA B;
+
+    INSERT INTO SESSION.T_MTM_STAGE_ALL
+    (
+        CUST_NUM,
+        DEAL_NUM,
+        DEAL_TYPE,
+        CUR_MTM_AMT
+    )
+    SELECT
+        S.CUST_NUM,
+        S.DEAL_NUM,
+        S.DEAL_TYPE,
+        S.CUR_MTM_AMT
+    FROM SESSION.T_MTM_STAGE S;
+
+    INSERT INTO INTERFACE.API_MTM_REVAL
+    (
+        CUST_NUM,
+        DEAL_NUM,
+        DEAL_TYPE,
+        CUR_MTM_AMT,
+        STATUS_CD,
+        LAST_UPD_TS
+    )
+    SELECT
+        S.CUST_NUM,
+        S.DEAL_NUM,
+        S.DEAL_TYPE,
+        S.CUR_MTM_AMT,
+        V_STATUS,
+        CURRENT TIMESTAMP
+    FROM SESSION.T_MTM_STAGE S;
+
+    INSERT INTO INTERFACE.API_MTM_REVAL_STAR
+    SELECT *
+    FROM SESSION.T_MTM_STAGE_ALL;
+
+    INSERT INTO INTERFACE.V_API_MTM_REVAL
+    (
+        CUST_NUM,
+        DEAL_NUM,
+        DEAL_TYPE,
+        CUR_MTM_AMT,
+        LAST_UPD_TS
+    )
+    SELECT
+        CUSTOMER_NUMBER,
+        DEAL_NUMBER,
+        DEAL_TYPE,
+        MTM_AMOUNT,
+        LAST_UPDATE_TS
+    FROM FOS.API_MTM_REVAL
+    WHERE CUSTOMER_NUMBER = P_CUST_NUM;
+
+    UPDATE INTERFACE.API_MTM_REVAL T
+       SET STATUS_CD = 'ACTIVE',
+           CUR_MTM_AMT = (
+               SELECT S.CUR_MTM_AMT
+               FROM SESSION.T_MTM_STAGE S
+               WHERE S.DEAL_NUM = T.DEAL_NUM
+               FETCH FIRST 1 ROW ONLY
+           )
+     WHERE T.CUST_NUM = P_CUST_NUM;
+
+    UPDATE INTERFACE.V_API_MTM_REVAL V
+       SET DEAL_TYPE = 'UPD'
+     WHERE V.CUST_NUM = P_CUST_NUM;
+
+    DELETE FROM INTERFACE.API_MTM_REVAL
+     WHERE STATUS_CD = 'OLD';
+
+    DELETE FROM INTERFACE.V_API_MTM_REVAL
+     WHERE CUST_NUM = 'TO_DELETE';
+
+    MERGE INTO INTERFACE.API_MTM_REVAL T
+    USING SESSION.T_MTM_STAGE S
+       ON T.DEAL_NUM = S.DEAL_NUM
+    WHEN MATCHED THEN
+         UPDATE SET
+             T.CUR_MTM_AMT = S.CUR_MTM_AMT,
+             T.STATUS_CD = 'MERGED'
+    WHEN NOT MATCHED THEN
+         INSERT
+         (
+             CUST_NUM,
+             DEAL_NUM,
+             DEAL_TYPE,
+             CUR_MTM_AMT,
+             STATUS_CD,
+             LAST_UPD_TS
+         )
+         VALUES
+         (
+             S.CUST_NUM,
+             S.DEAL_NUM,
+             S.DEAL_TYPE,
+             S.CUR_MTM_AMT,
+             'NEW',
+             CURRENT TIMESTAMP
+         );
+
+    MERGE INTO INTERFACE.V_API_MTM_REVAL V
+    USING SESSION.T_MTM_STAGE S
+       ON V.DEAL_NUM = S.DEAL_NUM
+    WHEN MATCHED THEN
+         UPDATE SET
+             V.CUR_MTM_AMT = S.CUR_MTM_AMT
+    WHEN NOT MATCHED THEN
+         INSERT
+         (
+             CUST_NUM,
+             DEAL_NUM,
+             DEAL_TYPE,
+             CUR_MTM_AMT,
+             LAST_UPD_TS
+         )
+         VALUES
+         (
+             S.CUST_NUM,
+             S.DEAL_NUM,
+             S.DEAL_TYPE,
+             S.CUR_MTM_AMT,
+             CURRENT TIMESTAMP
+         );
+
+    CALL RPT.PR_AUDIT_MTM_REVAL(P_CUST_NUM, 'D001', 'DONE');
+
+    INSERT INTO INTERFACE.MTM_REVAL_TMP_COPY
+    (
+        CUST_NUM,
+        DEAL_NUM,
+        CUR_MTM_AMT
+    )
+    SELECT
+        CUST_NUM,
+        DEAL_NUM,
+        CUR_MTM_AMT
+    FROM INTERFACE.API_MTM_REVAL;
+
+    TRUNCATE TABLE INTERFACE.MTM_REVAL_HIST IMMEDIATE;
+END
+@

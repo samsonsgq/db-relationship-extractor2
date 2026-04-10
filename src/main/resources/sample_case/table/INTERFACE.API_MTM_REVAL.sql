@@ -1,0 +1,9 @@
+CREATE TABLE INTERFACE.API_MTM_REVAL (
+    CUST_NUM            VARCHAR(20),
+    DEAL_NUM            VARCHAR(20),
+    DEAL_TYPE           VARCHAR(10),
+    CUR_MTM_AMT         DECIMAL(18,2),
+    STATUS_CD           VARCHAR(10),
+    LAST_UPD_TS         TIMESTAMP
+)
+@

@@ -1,0 +1,6 @@
+CREATE TABLE INTERFACE.MTM_REVAL_HIST (
+    CUST_NUM            VARCHAR(20),
+    DEAL_NUM            VARCHAR(20),
+    CUR_MTM_AMT         DECIMAL(18,2)
+)
+@

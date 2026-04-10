@@ -1,0 +1,9 @@
+CREATE TABLE CCL.CODE_MAP (
+    CODE_CATEGORY       VARCHAR(30),
+    CODE_SUB_CATEGORY   VARCHAR(30),
+    CODE_TYPE           VARCHAR(30),
+    KEY1                VARCHAR(30),
+    KEY2                VARCHAR(30),
+    CODE_VALUE          VARCHAR(100)
+)
+@
