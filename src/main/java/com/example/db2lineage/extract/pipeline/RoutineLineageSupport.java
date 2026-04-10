@@ -147,9 +147,10 @@ final class RoutineLineageSupport {
         }
         String targetVariable = assignment.group(1).trim();
         String functionName = assignment.group(2).trim();
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         List<String> args = splitArgs(assignment.group(3));
         addParameterRows(parsedStatement, context, collector, lineNo, line, functionName, args, RelationshipType.FUNCTION_PARAM_MAP, baseNaturalOrder);
-        collector.addDraft(lineDraft(parsedStatement, context, functionName, TargetObjectType.VARIABLE, targetVariable, targetVariable,
+        collector.addDraft(lineDraft(parsedStatement, context, functionName, TargetObjectType.VARIABLE, owningRoutine, targetVariable,
                 RelationshipType.FUNCTION_EXPR_MAP, lineNo, line, baseNaturalOrder + 100));
         return true;
     }
@@ -205,11 +206,12 @@ final class RoutineLineageSupport {
             return false;
         }
         String cursor = fetch.group(1).trim();
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
                 RelationshipType.CURSOR_READ, lineNo, line, baseNaturalOrder));
         List<String> targets = splitArgs(fetch.group(2));
         for (int i = 0; i < targets.size(); i++) {
-            collector.addDraft(lineDraft(parsedStatement, context, cursor, TargetObjectType.VARIABLE, targets.get(i).trim(), targets.get(i).trim(),
+            collector.addDraft(lineDraft(parsedStatement, context, cursor, TargetObjectType.VARIABLE, owningRoutine, targets.get(i).trim(),
                     RelationshipType.CURSOR_FETCH_MAP, lineNo, line, baseNaturalOrder + 10 + i));
         }
         return true;
@@ -221,10 +223,11 @@ final class RoutineLineageSupport {
         if (!diagnostics.find()) {
             return false;
         }
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         collector.addDraft(lineDraft(parsedStatement, context,
                 "CONSTANT:" + diagnostics.group(2).trim().toUpperCase(Locale.ROOT),
                 TargetObjectType.VARIABLE,
-                diagnostics.group(1).trim(),
+                owningRoutine,
                 diagnostics.group(1).trim(),
                 RelationshipType.DIAGNOSTICS_FETCH_MAP,
                 lineNo,
@@ -239,10 +242,11 @@ final class RoutineLineageSupport {
         if (!special.find()) {
             return false;
         }
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         collector.addDraft(lineDraft(parsedStatement, context,
                 "CONSTANT:" + special.group(2).trim().toUpperCase(Locale.ROOT),
                 TargetObjectType.VARIABLE,
-                special.group(1).trim(),
+                owningRoutine,
                 special.group(1).trim(),
                 RelationshipType.SPECIAL_REGISTER_MAP,
                 lineNo,
@@ -257,10 +261,11 @@ final class RoutineLineageSupport {
         if (!handler.find()) {
             return false;
         }
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         collector.addDraft(lineDraft(parsedStatement, context,
                 "CONSTANT:" + handler.group(1).trim().toUpperCase(Locale.ROOT),
                 TargetObjectType.VARIABLE,
-                handler.group(2).trim(),
+                owningRoutine,
                 handler.group(2).trim(),
                 RelationshipType.EXCEPTION_HANDLER_MAP,
                 lineNo,
@@ -276,7 +281,7 @@ final class RoutineLineageSupport {
             return false;
         }
         collector.addDraft(lineDraft(parsedStatement, context,
-                dynamic.group(1).trim(),
+                normalizeSourceToken(dynamic.group(1).trim()),
                 TargetObjectType.UNKNOWN,
                 ObjectRelationshipSupport.UNKNOWN_DYNAMIC_SQL,
                 "",
