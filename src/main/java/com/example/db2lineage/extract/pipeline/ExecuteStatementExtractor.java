@@ -47,11 +47,14 @@ public final class ExecuteStatementExtractor implements StatementExtractor {
             return;
         }
 
+        TargetObjectType callableType = context.schemaMetadataService()
+                .resolveObjectType(execute.getName())
+                .orElse(TargetObjectType.PROCEDURE);
         collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
                 context,
                 parsedStatement,
-                RelationshipType.CALL_PROCEDURE,
-                TargetObjectType.PROCEDURE,
+                callableType == TargetObjectType.FUNCTION ? RelationshipType.CALL_FUNCTION : RelationshipType.CALL_PROCEDURE,
+                callableType,
                 execute.getName(),
                 0
         ));

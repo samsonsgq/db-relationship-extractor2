@@ -30,6 +30,10 @@ final class RoutineLineageSupport {
     private static final Pattern SPECIAL_REGISTER_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*(CURRENT\\s+DATE|CURRENT\\s+TIMESTAMP|CURRENT\\s+USER|USER|SQLSTATE|SQLCODE)\\s*;?\\s*$");
     private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+([A-Z0-9_.$,\\s]+?)\\s+(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*(.+?)\\s*;?\\s*$");
     private static final Pattern EXECUTE_IMMEDIATE_PATTERN = Pattern.compile("(?i)^\\s*EXECUTE\\s+IMMEDIATE\\s+(.+?)\\s*;?\\s*$");
+    private static final Pattern IF_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*IF\\s+(.+?)\\s+THEN\\b.*$");
+    private static final Pattern WHILE_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHILE\\s+(.+?)\\s+DO\\b.*$");
+    private static final Pattern UNTIL_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*UNTIL\\s+(.+?)\\s*$");
+    private static final Pattern CASE_WHEN_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHEN\\s+(.+?)\\s+THEN\\b.*$");
 
     private RoutineLineageSupport() {
     }
@@ -58,7 +62,67 @@ final class RoutineLineageSupport {
         if (extractHandler(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
+        if (extractControlFlowCondition(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
+            return true;
+        }
         return extractDynamicSql(line, lineNo, parsedStatement, context, collector, baseNaturalOrder);
+    }
+
+    private static boolean extractControlFlowCondition(String line,
+                                                       int lineNo,
+                                                       ParsedStatementResult parsedStatement,
+                                                       ExtractionContext context,
+                                                       RowCollector collector,
+                                                       int baseNaturalOrder) {
+        String condition = firstMatchedGroup(line, IF_CONDITION_PATTERN, WHILE_CONDITION_PATTERN, UNTIL_CONDITION_PATTERN, CASE_WHEN_CONDITION_PATTERN);
+        if (condition == null || condition.isBlank()) {
+            return false;
+        }
+
+        Expression expression;
+        try {
+            expression = CCJSqlParserUtil.parseCondExpression(condition.trim());
+        } catch (JSQLParserException ignored) {
+            return false;
+        }
+
+        TargetObjectType targetType = ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice())
+                == com.example.db2lineage.model.SourceObjectType.FUNCTION
+                ? TargetObjectType.FUNCTION
+                : TargetObjectType.PROCEDURE;
+        String targetObject = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
+
+        List<ExpressionTokenSupport.TokenUse> tokens = ExpressionTokenSupport.collect(expression, parsedStatement.slice());
+        if (tokens.isEmpty()) {
+            return false;
+        }
+
+        for (ExpressionTokenSupport.TokenUse tokenUse : tokens) {
+            collector.addDraft(lineDraft(
+                    parsedStatement,
+                    context,
+                    tokenUse.token(),
+                    targetType,
+                    targetObject,
+                    "",
+                    RelationshipType.CONTROL_FLOW_CONDITION,
+                    tokenUse.lineNo(),
+                    tokenUse.lineContent(),
+                    baseNaturalOrder + tokenUse.orderOnLine()
+            ));
+        }
+        return true;
+    }
+
+    @SafeVarargs
+    private static String firstMatchedGroup(String line, Pattern... patterns) {
+        for (Pattern pattern : patterns) {
+            Matcher matcher = pattern.matcher(line);
+            if (matcher.find()) {
+                return matcher.group(1);
+            }
+        }
+        return null;
     }
 
     private static boolean extractCall(String line, int lineNo, ParsedStatementResult parsedStatement,

@@ -41,7 +41,12 @@ public final class SelectStatementExtractor implements StatementExtractor {
 
         for (ObjectRelationshipSupport.TableRef ref : ObjectRelationshipSupport.collectSelectReadObjects(select)) {
             RelationshipType relationship = RelationshipType.SELECT_TABLE;
-            TargetObjectType targetType = ref.targetType();
+            TargetObjectType targetType = context.schemaMetadataService()
+                    .resolveObjectType(ref.objectName())
+                    .orElse(ref.targetType());
+            if (targetType == TargetObjectType.VIEW) {
+                relationship = RelationshipType.SELECT_VIEW;
+            }
             if (cteNamesUpper.contains(ref.objectName().toUpperCase())) {
                 relationship = RelationshipType.CTE_READ;
                 targetType = TargetObjectType.CTE;
