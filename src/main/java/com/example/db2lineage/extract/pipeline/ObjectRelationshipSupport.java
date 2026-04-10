@@ -180,11 +180,7 @@ final class ObjectRelationshipSupport {
         }
 
         String token = matcher.group(1).trim();
-        int spaceIdx = token.indexOf(' ');
-        if (spaceIdx >= 0) {
-            token = token.substring(0, spaceIdx);
-        }
-        return token.replaceAll("[,)]$", "");
+        return token.replaceAll("[;\\s]+$", "");
     }
 
     private static void collectSelectReadsInternal(Select select, Set<TableRef> ordered) {

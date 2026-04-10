@@ -347,7 +347,7 @@ final class RoutineLineageSupport {
                 relationshipType,
                 lineNo,
                 line,
-                ConfidenceLevel.PARSER,
+                ConfidenceLevel.REGEX,
                 ObjectRelationshipSupport.statementOrder(context, parsedStatement),
                 naturalOrder
         );
