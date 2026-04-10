@@ -20,7 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class RoutineLineageSupport {
-    private static final Pattern CALL_PATTERN = Pattern.compile("(?i)\\bCALL\\s+([A-Z0-9_.$\\\"]+)\\s*(?:\\((.*)\\))?\\s*;?");
+    private static final Pattern CALL_PATTERN = Pattern.compile("(?i)^\\s*CALL\\s+([A-Z0-9_.$\\\"]+)\\s*(?:\\((.*)\\))?\\s*;?\\s*$");
     private static final Pattern FUNCTION_CALL_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$\\\"]+)\\s*\\((.*)\\)\\s*;?\\s*$");
     private static final Pattern DECLARE_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+([A-Z0-9_.$]+)\\s+CURSOR\\b.*$");
     private static final Pattern OPEN_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*OPEN\\s+([A-Z0-9_.$]+)\\s*;?\\s*$");
@@ -44,6 +44,9 @@ final class RoutineLineageSupport {
                                ExtractionContext context,
                                RowCollector collector,
                                int baseNaturalOrder) {
+        if (stripComments(line).isBlank()) {
+            return false;
+        }
         if (extractCall(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
@@ -74,7 +77,7 @@ final class RoutineLineageSupport {
                                                        ExtractionContext context,
                                                        RowCollector collector,
                                                        int baseNaturalOrder) {
-        String condition = firstMatchedGroup(line, IF_CONDITION_PATTERN, WHILE_CONDITION_PATTERN, UNTIL_CONDITION_PATTERN, CASE_WHEN_CONDITION_PATTERN);
+        String condition = firstMatchedGroup(stripComments(line), IF_CONDITION_PATTERN, WHILE_CONDITION_PATTERN, UNTIL_CONDITION_PATTERN, CASE_WHEN_CONDITION_PATTERN);
         if (condition == null || condition.isBlank()) {
             return false;
         }
@@ -127,7 +130,7 @@ final class RoutineLineageSupport {
 
     private static boolean extractCall(String line, int lineNo, ParsedStatementResult parsedStatement,
                                        ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher call = CALL_PATTERN.matcher(line);
+        Matcher call = CALL_PATTERN.matcher(stripComments(line));
         if (!call.find()) {
             return false;
         }
@@ -141,7 +144,7 @@ final class RoutineLineageSupport {
 
     private static boolean extractFunctionAssignment(String line, int lineNo, ParsedStatementResult parsedStatement,
                                                      ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher assignment = FUNCTION_CALL_ASSIGNMENT.matcher(line);
+        Matcher assignment = FUNCTION_CALL_ASSIGNMENT.matcher(stripComments(line));
         if (!assignment.find()) {
             return false;
         }
@@ -180,28 +183,29 @@ final class RoutineLineageSupport {
 
     private static boolean extractCursorRows(String line, int lineNo, ParsedStatementResult parsedStatement,
                                              ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher declare = DECLARE_CURSOR_PATTERN.matcher(line);
+        String uncommented = stripComments(line);
+        Matcher declare = DECLARE_CURSOR_PATTERN.matcher(uncommented);
         if (declare.find()) {
             String cursor = declare.group(1).trim();
             collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
                     RelationshipType.CURSOR_DEFINE, lineNo, line, baseNaturalOrder));
             return true;
         }
-        Matcher open = OPEN_CURSOR_PATTERN.matcher(line);
+        Matcher open = OPEN_CURSOR_PATTERN.matcher(uncommented);
         if (open.find()) {
             String cursor = open.group(1).trim();
             collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
                     RelationshipType.CURSOR_READ, lineNo, line, baseNaturalOrder));
             return true;
         }
-        Matcher close = CLOSE_CURSOR_PATTERN.matcher(line);
+        Matcher close = CLOSE_CURSOR_PATTERN.matcher(uncommented);
         if (close.find()) {
             String cursor = close.group(1).trim();
             collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
                     RelationshipType.CURSOR_READ, lineNo, line, baseNaturalOrder));
             return true;
         }
-        Matcher fetch = FETCH_CURSOR_PATTERN.matcher(line);
+        Matcher fetch = FETCH_CURSOR_PATTERN.matcher(uncommented);
         if (!fetch.find()) {
             return false;
         }
@@ -219,7 +223,7 @@ final class RoutineLineageSupport {
 
     private static boolean extractDiagnostics(String line, int lineNo, ParsedStatementResult parsedStatement,
                                               ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher diagnostics = GET_DIAGNOSTICS_PATTERN.matcher(line);
+        Matcher diagnostics = GET_DIAGNOSTICS_PATTERN.matcher(stripComments(line));
         if (!diagnostics.find()) {
             return false;
         }
@@ -238,7 +242,7 @@ final class RoutineLineageSupport {
 
     private static boolean extractSpecialRegister(String line, int lineNo, ParsedStatementResult parsedStatement,
                                                   ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher special = SPECIAL_REGISTER_ASSIGNMENT.matcher(line);
+        Matcher special = SPECIAL_REGISTER_ASSIGNMENT.matcher(stripComments(line));
         if (!special.find()) {
             return false;
         }
@@ -257,7 +261,7 @@ final class RoutineLineageSupport {
 
     private static boolean extractHandler(String line, int lineNo, ParsedStatementResult parsedStatement,
                                           ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher handler = HANDLER_PATTERN.matcher(line);
+        Matcher handler = HANDLER_PATTERN.matcher(stripComments(line));
         if (!handler.find()) {
             return false;
         }
@@ -279,7 +283,7 @@ final class RoutineLineageSupport {
 
     private static boolean extractDynamicSql(String line, int lineNo, ParsedStatementResult parsedStatement,
                                              ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
-        Matcher dynamic = EXECUTE_IMMEDIATE_PATTERN.matcher(line);
+        Matcher dynamic = EXECUTE_IMMEDIATE_PATTERN.matcher(stripComments(line));
         if (!dynamic.find()) {
             return false;
         }
@@ -379,6 +383,39 @@ final class RoutineLineageSupport {
             args.add(current.toString().trim());
         }
         return List.copyOf(args);
+    }
+
+    private static String stripComments(String line) {
+        if (line == null || line.isEmpty()) {
+            return "";
+        }
+        StringBuilder out = new StringBuilder();
+        boolean insideSingleQuote = false;
+        for (int i = 0; i < line.length(); i++) {
+            char c = line.charAt(i);
+            char next = i + 1 < line.length() ? line.charAt(i + 1) : '\0';
+            if (!insideSingleQuote && c == '-' && next == '-') {
+                break;
+            }
+            if (!insideSingleQuote && c == '/' && next == '*') {
+                int end = line.indexOf("*/", i + 2);
+                if (end < 0) {
+                    break;
+                }
+                i = end + 1;
+                continue;
+            }
+            out.append(c);
+            if (c == '\'') {
+                if (insideSingleQuote && next == '\'') {
+                    out.append(next);
+                    i++;
+                    continue;
+                }
+                insideSingleQuote = !insideSingleQuote;
+            }
+        }
+        return out.toString();
     }
 
     private static String normalizeSourceToken(String arg) {
