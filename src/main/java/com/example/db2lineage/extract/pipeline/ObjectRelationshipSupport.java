@@ -109,7 +109,8 @@ final class ObjectRelationshipSupport {
         int slash = relative.lastIndexOf('/');
         String fileName = slash >= 0 ? relative.substring(slash + 1) : relative;
         int dot = fileName.lastIndexOf('.');
-        return dot > 0 ? fileName.substring(0, dot) : fileName;
+        String stem = dot > 0 ? fileName.substring(0, dot) : fileName;
+        return stem.toUpperCase(Locale.ROOT);
     }
 
     static int statementOrder(ExtractionContext context, ParsedStatementResult parsedStatement) {
