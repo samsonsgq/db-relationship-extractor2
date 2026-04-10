@@ -101,6 +101,19 @@ final class ObjectRelationshipSupport {
         if (tableMatcher.find()) {
             return normalizeObjectName(tableMatcher.group(1));
         }
+        String fullText = slice.sourceFile().fullText();
+        if (slice.sourceCategory() == SqlSourceCategory.SP_DIR) {
+            Matcher procInFile = CREATE_PROCEDURE_NAME.matcher(fullText);
+            if (procInFile.find()) {
+                return normalizeObjectName(procInFile.group(1));
+            }
+        }
+        if (slice.sourceCategory() == SqlSourceCategory.FUNCTION_DIR) {
+            Matcher fnInFile = CREATE_FUNCTION_NAME.matcher(fullText);
+            if (fnInFile.find()) {
+                return normalizeObjectName(fnInFile.group(1));
+            }
+        }
 
         String relative = slice.sourceFile().relativePath().toString().replace('\\', '/');
         if (relative.isBlank()) {

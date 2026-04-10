@@ -12,6 +12,9 @@ import com.example.db2lineage.resolve.SchemaMetadataService;
 import net.sf.jsqlparser.JSQLParserException;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.parser.CCJSqlParserUtil;
+import net.sf.jsqlparser.statement.select.PlainSelect;
+import net.sf.jsqlparser.statement.select.Select;
+import net.sf.jsqlparser.statement.select.SelectItem;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -20,20 +23,22 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class RoutineLineageSupport {
-    private static final Pattern CALL_PATTERN = Pattern.compile("(?i)\\bCALL\\s+([A-Z0-9_.$\\\"]+)\\s*(?:\\((.*)\\))?\\s*;?");
+    private static final Pattern CALL_PATTERN = Pattern.compile("(?i)^\\s*CALL\\s+([A-Z0-9_.$\\\"]+)\\s*(?:\\((.*)\\))?\\s*;?\\s*$");
     private static final Pattern FUNCTION_CALL_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$\\\"]+)\\s*\\((.*)\\)\\s*;?\\s*$");
     private static final Pattern DECLARE_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+([A-Z0-9_.$]+)\\s+CURSOR\\b.*$");
     private static final Pattern OPEN_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*OPEN\\s+([A-Z0-9_.$]+)\\s*;?\\s*$");
     private static final Pattern CLOSE_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*CLOSE\\s+([A-Z0-9_.$]+)\\s*;?\\s*$");
     private static final Pattern FETCH_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*FETCH\\s+(?:NEXT\\s+FROM\\s+|FROM\\s+)?([A-Z0-9_.$]+)\\s+INTO\\s+(.+?)\\s*;?\\s*$");
-    private static final Pattern GET_DIAGNOSTICS_PATTERN = Pattern.compile("(?i)^\\s*GET\\s+DIAGNOSTICS\\s+([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$]+)\\s*;?\\s*$");
+    private static final Pattern GET_DIAGNOSTICS_PATTERN = Pattern.compile("(?i)^\\s*GET\\s+DIAGNOSTICS\\s+(?:(?:EXCEPTION|CONDITION)\\s+\\d+\\s+)?([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$]+)\\s*;?\\s*$");
     private static final Pattern SPECIAL_REGISTER_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*(CURRENT\\s+DATE|CURRENT\\s+TIMESTAMP|CURRENT\\s+USER|USER|SQLSTATE|SQLCODE)\\s*;?\\s*$");
-    private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+([A-Z0-9_.$,\\s]+?)\\s+(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*(.+?)\\s*;?\\s*$");
+    private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+(.+?)\\s*$");
+    private static final Pattern DECLARE_GLOBAL_TEMPORARY_TABLE = Pattern.compile("(?i)^\\s*DECLARE\\s+GLOBAL\\s+TEMPORARY\\s+TABLE\\s+([A-Z0-9_.$\\\"]+).*");
+    private static final Pattern DECLARE_VARIABLE_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+[A-Z0-9_.$]+\\s+.+$");
     private static final Pattern EXECUTE_IMMEDIATE_PATTERN = Pattern.compile("(?i)^\\s*EXECUTE\\s+IMMEDIATE\\s+(.+?)\\s*;?\\s*$");
     private static final Pattern IF_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*IF\\s+(.+?)\\s+THEN\\b.*$");
     private static final Pattern WHILE_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHILE\\s+(.+?)\\s+DO\\b.*$");
     private static final Pattern UNTIL_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*UNTIL\\s+(.+?)\\s*$");
-    private static final Pattern CASE_WHEN_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHEN\\s+(.+?)\\s+THEN\\b.*$");
+    private static final Pattern TRANSACTION_CONTROL_PATTERN = Pattern.compile("(?i)^\\s*(COMMIT|ROLLBACK)\\b.*");
 
     private RoutineLineageSupport() {
     }
@@ -62,10 +67,55 @@ final class RoutineLineageSupport {
         if (extractHandler(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
+        if (extractDeclareGlobalTemporaryTable(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
+            return true;
+        }
         if (extractControlFlowCondition(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
         return extractDynamicSql(line, lineNo, parsedStatement, context, collector, baseNaturalOrder);
+    }
+
+    static boolean isTransactionControlStatement(String text) {
+        return text != null && TRANSACTION_CONTROL_PATTERN.matcher(text.trim()).matches();
+    }
+
+    static boolean isPlainVariableDeclaration(String text) {
+        if (text == null) {
+            return false;
+        }
+        String trimmed = firstSqlLine(text);
+        if (!DECLARE_VARIABLE_PATTERN.matcher(trimmed).matches()) {
+            return false;
+        }
+        return !DECLARE_CURSOR_PATTERN.matcher(trimmed).matches()
+                && !DECLARE_GLOBAL_TEMPORARY_TABLE.matcher(trimmed).matches()
+                && !HANDLER_PATTERN.matcher(trimmed).matches();
+    }
+
+    static boolean isRoutineStructuralStatement(String text) {
+        if (text == null) {
+            return false;
+        }
+        String first = firstSqlLine(text).toUpperCase(Locale.ROOT);
+        return first.equals("END;")
+                || first.equals("END")
+                || first.equals("ELSE")
+                || first.equals("ELSE;")
+                || first.startsWith("END IF")
+                || first.startsWith("END WHILE")
+                || first.startsWith("END FOR");
+    }
+
+    private static String firstSqlLine(String text) {
+        for (String line : text.split("\\R")) {
+            String trimmed = line.trim();
+            if (trimmed.isEmpty() || trimmed.startsWith("--")) {
+                continue;
+            }
+            return trimmed;
+        }
+        return text.trim();
     }
 
     private static boolean extractControlFlowCondition(String line,
@@ -74,7 +124,7 @@ final class RoutineLineageSupport {
                                                        ExtractionContext context,
                                                        RowCollector collector,
                                                        int baseNaturalOrder) {
-        String condition = firstMatchedGroup(line, IF_CONDITION_PATTERN, WHILE_CONDITION_PATTERN, UNTIL_CONDITION_PATTERN, CASE_WHEN_CONDITION_PATTERN);
+        String condition = firstMatchedGroup(line, IF_CONDITION_PATTERN, WHILE_CONDITION_PATTERN, UNTIL_CONDITION_PATTERN);
         if (condition == null || condition.isBlank()) {
             return false;
         }
@@ -210,8 +260,10 @@ final class RoutineLineageSupport {
         collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
                 RelationshipType.CURSOR_READ, lineNo, line, baseNaturalOrder));
         List<String> targets = splitArgs(fetch.group(2));
+        List<String> selectSources = resolveCursorSelectSources(cursor, parsedStatement);
         for (int i = 0; i < targets.size(); i++) {
-            collector.addDraft(lineDraft(parsedStatement, context, cursor, TargetObjectType.VARIABLE, owningRoutine, targets.get(i).trim(),
+            String sourceField = i < selectSources.size() ? selectSources.get(i) : cursor;
+            collector.addDraft(lineDraft(parsedStatement, context, sourceField, TargetObjectType.VARIABLE, owningRoutine, targets.get(i).trim(),
                     RelationshipType.CURSOR_FETCH_MAP, lineNo, line, baseNaturalOrder + 10 + i));
         }
         return true;
@@ -262,8 +314,13 @@ final class RoutineLineageSupport {
             return false;
         }
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
+        String condition = handler.group(1).trim();
+        condition = condition.replaceAll("(?i)\\s+SET\\b.*$", "");
+        condition = condition.replaceAll("(?i)\\s+BEGIN\\b.*$", "");
+        condition = condition.replaceAll(";$", "");
+        condition = condition.replaceAll("\\s+", " ");
         collector.addDraft(lineDraft(parsedStatement, context,
-                "CONSTANT:" + handler.group(1).trim().toUpperCase(Locale.ROOT),
+                "CONSTANT:" + condition.toUpperCase(Locale.ROOT),
                 ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice())
                         == com.example.db2lineage.model.SourceObjectType.FUNCTION
                         ? TargetObjectType.FUNCTION
@@ -274,6 +331,21 @@ final class RoutineLineageSupport {
                 lineNo,
                 line,
                 baseNaturalOrder));
+        return true;
+    }
+
+    private static boolean extractDeclareGlobalTemporaryTable(String line,
+                                                              int lineNo,
+                                                              ParsedStatementResult parsedStatement,
+                                                              ExtractionContext context,
+                                                              RowCollector collector,
+                                                              int baseNaturalOrder) {
+        Matcher dgtt = DECLARE_GLOBAL_TEMPORARY_TABLE.matcher(line);
+        if (!dgtt.find()) {
+            return false;
+        }
+        collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.SESSION_TABLE, dgtt.group(1).trim(), "",
+                RelationshipType.CREATE_TABLE, lineNo, line, baseNaturalOrder));
         return true;
     }
 
@@ -301,8 +373,9 @@ final class RoutineLineageSupport {
                                         ExtractionContext context,
                                         RowCollector collector,
                                         int naturalOrder) {
-        Pattern setAssignment = Pattern.compile("(?i)^\\s*SET\\s+([A-Z0-9_.$]+)\\s*=\\s*(.+?)\\s*;?\\s*$");
-        Matcher setMatcher = setAssignment.matcher(statementText);
+        Pattern setAssignment = Pattern.compile("(?is)^\\s*SET\\s+([A-Z0-9_.$]+)\\s*=\\s*(.+?)\\s*;?\\s*$");
+        String normalized = statementText == null ? "" : statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
+        Matcher setMatcher = setAssignment.matcher(normalized);
         if (!setMatcher.find()) {
             return false;
         }
@@ -325,6 +398,51 @@ final class RoutineLineageSupport {
         } catch (JSQLParserException ignored) {
             return false;
         }
+    }
+
+    private static List<String> resolveCursorSelectSources(String cursorName,
+                                                           ParsedStatementResult parsedStatement) {
+        List<String> lines = parsedStatement.slice().sourceFile().rawLines();
+        for (int i = 0; i < lines.size(); i++) {
+            Matcher declare = DECLARE_CURSOR_PATTERN.matcher(lines.get(i));
+            if (!declare.find() || !declare.group(1).trim().equalsIgnoreCase(cursorName)) {
+                continue;
+            }
+            StringBuilder statement = new StringBuilder(lines.get(i));
+            int line = i + 1;
+            while (!statement.toString().contains(";") && line < lines.size()) {
+                statement.append('\n').append(lines.get(line));
+                line++;
+            }
+
+            String statementText = statement.toString();
+            int forIndex = statementText.toUpperCase(Locale.ROOT).indexOf(" FOR ");
+            if (forIndex < 0) {
+                return List.of();
+            }
+            String selectText = statementText.substring(forIndex + 5).trim();
+            if (selectText.endsWith(";")) {
+                selectText = selectText.substring(0, selectText.length() - 1);
+            }
+            try {
+                var parsed = CCJSqlParserUtil.parse(selectText);
+                if (!(parsed instanceof Select select) || select.getPlainSelect() == null) {
+                    return List.of();
+                }
+                PlainSelect plainSelect = select.getPlainSelect();
+                List<String> tokens = new ArrayList<>();
+                for (SelectItem<?> selectItem : plainSelect.getSelectItems()) {
+                    Expression expression = selectItem.getExpression();
+                    if (expression != null) {
+                        tokens.add(normalizeSourceToken(expression.toString()));
+                    }
+                }
+                return List.copyOf(tokens);
+            } catch (Exception ignored) {
+                return List.of();
+            }
+        }
+        return List.of();
     }
 
     private static RowDraft lineDraft(ParsedStatementResult parsedStatement,
