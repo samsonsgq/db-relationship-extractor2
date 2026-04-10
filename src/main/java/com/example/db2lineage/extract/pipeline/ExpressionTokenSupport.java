@@ -55,7 +55,7 @@ final class ExpressionTokenSupport {
                     return null;
                 }
                 String normalizedUpper = value.toUpperCase(Locale.ROOT).replace('_', ' ').trim();
-                if (SPECIAL_VALUES.contains(normalizedUpper)) {
+                if (!value.contains(".") && SPECIAL_VALUES.contains(normalizedUpper)) {
                     rawTokens.add("CONSTANT:" + value);
                 } else {
                     rawTokens.add(value);

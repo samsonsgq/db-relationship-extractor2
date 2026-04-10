@@ -20,7 +20,7 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 final class RoutineLineageSupport {
-    private static final Pattern CALL_PATTERN = Pattern.compile("(?i)\\bCALL\\s+([A-Z0-9_.$\\\"]+)\\s*\\((.*)\\)\\s*;?");
+    private static final Pattern CALL_PATTERN = Pattern.compile("(?i)\\bCALL\\s+([A-Z0-9_.$\\\"]+)\\s*(?:\\((.*)\\))?\\s*;?");
     private static final Pattern FUNCTION_CALL_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$\\\"]+)\\s*\\((.*)\\)\\s*;?\\s*$");
     private static final Pattern DECLARE_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+([A-Z0-9_.$]+)\\s+CURSOR\\b.*$");
     private static final Pattern OPEN_CURSOR_PATTERN = Pattern.compile("(?i)^\\s*OPEN\\s+([A-Z0-9_.$]+)\\s*;?\\s*$");
@@ -264,9 +264,12 @@ final class RoutineLineageSupport {
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         collector.addDraft(lineDraft(parsedStatement, context,
                 "CONSTANT:" + handler.group(1).trim().toUpperCase(Locale.ROOT),
-                TargetObjectType.VARIABLE,
+                ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice())
+                        == com.example.db2lineage.model.SourceObjectType.FUNCTION
+                        ? TargetObjectType.FUNCTION
+                        : TargetObjectType.PROCEDURE,
                 owningRoutine,
-                handler.group(2).trim(),
+                "",
                 RelationshipType.EXCEPTION_HANDLER_MAP,
                 lineNo,
                 line,
