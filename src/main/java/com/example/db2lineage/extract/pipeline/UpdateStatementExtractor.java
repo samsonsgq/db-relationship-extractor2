@@ -6,6 +6,7 @@ import com.example.db2lineage.model.RelationshipType;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.statement.select.Join;
 import net.sf.jsqlparser.statement.select.WithItem;
 import net.sf.jsqlparser.statement.update.Update;
@@ -71,13 +72,44 @@ public final class UpdateStatementExtractor implements StatementExtractor {
 
         if (update.getUpdateSets() != null) {
             for (UpdateSet updateSet : update.getUpdateSets()) {
+                if (updateSet.getColumns() != null) {
+                    for (Column column : updateSet.getColumns()) {
+                        MappingRelationshipSupport.addTargetColumnRow(
+                                RelationshipType.UPDATE_TARGET_COL,
+                                targetName,
+                                TargetObjectType.TABLE,
+                                column.getColumnName(),
+                                parsedStatement,
+                                context,
+                                collector,
+                                naturalOrder++
+                        );
+                    }
+                }
                 if (updateSet.getValues() == null) {
                     continue;
                 }
+                int colIndex = 0;
                 for (Object value : updateSet.getValues()) {
                     if (value instanceof Expression expression) {
                         ExpressionTokenSupport.addExpressionRows(RelationshipType.UPDATE_SET, expression, parsedStatement, context, collector, naturalOrder++);
+                        String targetField = updateSet.getColumns() != null && colIndex < updateSet.getColumns().size()
+                                ? updateSet.getColumns().get(colIndex).getColumnName() : "";
+                        if (!targetField.isBlank()) {
+                            MappingRelationshipSupport.addConciseMappingRows(
+                                    RelationshipType.UPDATE_SET_MAP,
+                                    targetName,
+                                    TargetObjectType.TABLE,
+                                    targetField,
+                                    expression,
+                                    parsedStatement,
+                                    context,
+                                    collector,
+                                    naturalOrder++
+                            );
+                        }
                     }
+                    colIndex++;
                 }
             }
         }

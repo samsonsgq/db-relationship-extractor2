@@ -8,6 +8,7 @@ import com.example.db2lineage.parse.SqlSourceCategory;
 import com.example.db2lineage.parse.SqlSourceFile;
 import com.example.db2lineage.parse.SqlStatementParser;
 import com.example.db2lineage.parse.StatementSlice;
+import com.example.db2lineage.resolve.InMemorySchemaMetadataService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
@@ -49,7 +50,7 @@ class ExtractionPipelineTest {
         ));
 
         List<RelationshipRow> rows = new ExtractionPipeline().extract(
-                new ExtractionContext(List.of(sourceFile)),
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(select, diagnostics))),
                 List.of(select, diagnostics)
         );
 
@@ -90,7 +91,7 @@ class ExtractionPipelineTest {
                 parser.parse(slice(sourceFile, 6, "TRUNCATE TABLE T_DST;", 5))
         );
 
-        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), parsed);
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)), parsed);
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CTE_DEFINE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CTE_READ));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UNION_INPUT));
@@ -134,7 +135,7 @@ class ExtractionPipelineTest {
                 parser.parse(slice(sourceFile, 5, "GET DIAGNOSTICS V_SQLSTATE = RETURNED_SQLSTATE", 4))
         );
 
-        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), parsed);
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)), parsed);
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_VIEW));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_TABLE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_FUNCTION));
@@ -157,7 +158,7 @@ class ExtractionPipelineTest {
 
         SqlStatementParser parser = new SqlStatementParser();
         ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, "EXECUTE IMMEDIATE V_SQL;", 0));
-        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), List.of(parsed));
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))), List.of(parsed));
 
         assertEquals(1, rows.size());
         assertEquals(RelationshipType.DYNAMIC_SQL_EXEC, rows.get(0).relationship());
@@ -180,7 +181,7 @@ class ExtractionPipelineTest {
         ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1,
                 "SELECT T.ID, T.AMT + 1 AS AMT2 FROM T1 T JOIN T2 X ON T.ID = X.ID WHERE T.FLAG = 'Y' GROUP BY T.ID ORDER BY T.ID;", 0));
 
-        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), List.of(parsed));
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))), List.of(parsed));
 
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD && r.sourceField().equals("T.ID")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR && r.sourceField().equals("T.AMT")));
@@ -205,9 +206,62 @@ class ExtractionPipelineTest {
         ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1,
                 "CREATE FUNCTION F_RET(P1 INT) RETURNS INT RETURN P1 + 5;", 0));
 
-        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile)), List.of(parsed));
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))), List.of(parsed));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && r.sourceField().equals("P1")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && r.sourceField().equals("CONSTANT:5")));
+    }
+
+    @Test
+    void phase9InsertTargetColumnAndMappingRules() {
+        SqlSourceFile sourceFile = sqlFile("phase9_insert.sql", List.of(
+                "CREATE TABLE T_DST (A INT, B INT);",
+                "INSERT INTO T_DST (A, B) SELECT S.X, COALESCE(S.Y, 0) FROM T_SRC S;",
+                "INSERT INTO T_DST SELECT S.X, S.Y FROM T_SRC S;"
+        ), SqlSourceCategory.TABLE_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        List<ParsedStatementResult> parsed = List.of(
+                parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0)),
+                parser.parse(slice(sourceFile, 2, sourceFile.rawLines().get(1), 1)),
+                parser.parse(slice(sourceFile, 3, sourceFile.rawLines().get(2), 2))
+        );
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)), parsed);
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_TARGET_COL && "A".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_TARGET_COL && "B".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP && "A".equals(r.targetField()) && "S.X".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP && "B".equals(r.targetField()) && "S.Y".equals(r.sourceField())));
+    }
+
+    @Test
+    void phase9UpdateMergeViewAndConciseExpressionMappings() {
+        SqlSourceFile sourceFile = sqlFile("phase9_mix.sql", List.of(
+                "CREATE VIEW V1 AS SELECT S.ID, CASE WHEN S.FLAG = 'Y' THEN COALESCE(S.AMT, 0) ELSE 1 END AS AMT FROM SRC S;",
+                "UPDATE T_DST SET A = S.X, B = CASE WHEN S.F = 1 THEN COALESCE(S.Y, 0) ELSE S.Z END FROM T_SRC S;",
+                "MERGE INTO T_DST D USING T_SRC S ON D.ID = S.ID WHEN MATCHED THEN UPDATE SET A = S.X, B = S.Y WHEN NOT MATCHED THEN INSERT (A, B) VALUES (S.X, COALESCE(S.Y, 0));"
+        ), SqlSourceCategory.VIEW_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        List<ParsedStatementResult> parsed = List.of(
+                parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0)),
+                parser.parse(slice(sourceFile, 2, sourceFile.rawLines().get(1), 1)),
+                parser.parse(slice(sourceFile, 3, sourceFile.rawLines().get(2), 2))
+        );
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)), parsed);
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_VIEW_MAP && "AMT".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_TARGET_COL && "A".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP && "B".equals(r.targetField()) && "S.Z".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_TARGET_COL && "A".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_SET_MAP && "B".equals(r.targetField()) && "S.Y".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP && "B".equals(r.targetField()) && "CONSTANT:0".equals(r.sourceField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP && r.sourceField().startsWith("FUNCTION:")));
+    }
+
+    private SqlSourceFile sqlFile(String name, List<String> lines, SqlSourceCategory category) {
+        return new SqlSourceFile(
+                category,
+                Path.of("/tmp/" + name),
+                Path.of(name),
+                String.join("\n", lines),
+                lines
+        );
     }
 
     private StatementSlice slice(SqlSourceFile sourceFile, int line, String sql, int ordinal) {

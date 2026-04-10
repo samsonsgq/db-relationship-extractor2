@@ -12,6 +12,7 @@ import com.example.db2lineage.parse.SqlSourceFileLoader;
 import com.example.db2lineage.parse.SqlStatementParser;
 import com.example.db2lineage.parse.StatementSlice;
 import com.example.db2lineage.parse.StatementSlicer;
+import com.example.db2lineage.resolve.InMemorySchemaMetadataService;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -58,7 +59,10 @@ public final class RelationshipDetailMain {
                 parseFailedCount
         );
 
-        ExtractionContext extractionContext = new ExtractionContext(sourceFiles);
+        ExtractionContext extractionContext = new ExtractionContext(
+                sourceFiles,
+                InMemorySchemaMetadataService.fromParsedStatements(parsedStatements)
+        );
         List<RelationshipRow> rows = new ExtractionPipeline().extract(extractionContext, parsedStatements);
         new RelationshipDetailTsvWriter().writeToOutputDir(cliArguments.outputDir(), rows);
     }
