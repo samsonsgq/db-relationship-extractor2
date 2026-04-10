@@ -1,8 +1,17 @@
 package com.example.db2lineage.parse;
 
+import java.util.List;
+
 public record StatementSlice(
-        String sql,
+        SqlSourceFile sourceFile,
+        SqlSourceCategory sourceCategory,
+        String statementText,
         int startLine,
-        int endLine
+        int endLine,
+        List<String> rawLines,
+        int ordinalWithinFile
 ) {
+    public StatementSlice {
+        rawLines = List.copyOf(rawLines);
+    }
 }
