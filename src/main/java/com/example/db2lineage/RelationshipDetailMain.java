@@ -4,6 +4,8 @@ import com.example.db2lineage.cli.CliArguments;
 import com.example.db2lineage.cli.CliArgumentsParser;
 import com.example.db2lineage.emit.RelationshipDetailTsvWriter;
 import com.example.db2lineage.model.RelationshipRow;
+import com.example.db2lineage.parse.SqlSourceFile;
+import com.example.db2lineage.parse.SqlSourceFileLoader;
 
 import java.nio.file.Path;
 import java.util.Collections;
@@ -27,6 +29,9 @@ public final class RelationshipDetailMain {
         }
 
         logStartup(cliArguments);
+
+        List<SqlSourceFile> sourceFiles = new SqlSourceFileLoader().load(cliArguments);
+        System.out.println("Discovered SQL source files: " + sourceFiles.size());
 
         // Phase 1 scaffold only: extraction is intentionally not implemented yet.
         List<RelationshipRow> rows = Collections.emptyList();
