@@ -2,8 +2,12 @@ package com.example.db2lineage.extract.pipeline;
 
 import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.extract.RowCollector;
+import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.statement.create.procedure.CreateProcedure;
+
+import java.util.List;
 
 public final class CreateProcedureStatementExtractor implements StatementExtractor {
     @Override
@@ -13,6 +17,22 @@ public final class CreateProcedureStatementExtractor implements StatementExtract
 
     @Override
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
-        // Phase 6 stub: relationship extraction logic intentionally deferred.
+        CreateProcedure createProcedure = (CreateProcedure) parsedStatement.statement().orElseThrow();
+        String name = extractName(createProcedure.getFunctionDeclarationParts());
+        collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
+                context,
+                parsedStatement,
+                RelationshipType.CREATE_PROCEDURE,
+                TargetObjectType.PROCEDURE,
+                name,
+                0
+        ));
+    }
+
+    private String extractName(List<String> declarationParts) {
+        if (declarationParts == null || declarationParts.isEmpty()) {
+            return ObjectRelationshipSupport.UNKNOWN_UNRESOLVED_OBJECT;
+        }
+        return declarationParts.get(0);
     }
 }
