@@ -15,11 +15,32 @@ public final class RelationshipDetailMain {
     }
 
     public static void main(String[] args) throws Exception {
-        CliArguments cliArguments = new CliArgumentsParser().parse(args);
+        CliArgumentsParser parser = new CliArgumentsParser();
+        CliArguments cliArguments;
 
-        // Scaffold only: extraction is intentionally not implemented yet.
+        try {
+            cliArguments = parser.parse(args);
+        } catch (IllegalArgumentException e) {
+            System.err.println("Invalid CLI arguments: " + e.getMessage());
+            System.exit(1);
+            return;
+        }
+
+        logStartup(cliArguments);
+
+        // Phase 1 scaffold only: extraction is intentionally not implemented yet.
         List<RelationshipRow> rows = Collections.emptyList();
         Path outputFile = cliArguments.outputDir().resolve("relationship_detail.tsv");
         new RelationshipDetailTsvWriter().write(outputFile, rows);
+    }
+
+    private static void logStartup(CliArguments args) {
+        System.out.println("Starting RelationshipDetailMain with directories:");
+        System.out.println("  tableDir   : " + args.tableDir());
+        System.out.println("  viewDir    : " + args.viewDir());
+        System.out.println("  functionDir: " + args.functionDir());
+        System.out.println("  spDir      : " + args.spDir());
+        System.out.println("  outputDir  : " + args.outputDir());
+        args.extraDir().ifPresent(path -> System.out.println("  extraDir   : " + path));
     }
 }
