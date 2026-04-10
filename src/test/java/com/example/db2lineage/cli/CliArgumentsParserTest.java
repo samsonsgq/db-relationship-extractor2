@@ -194,6 +194,40 @@ class CliArgumentsParserTest {
         assertTrue(exception.getMessage().contains("Argument --outputDir must not be empty."));
     }
 
+
+    @Test
+    void defaultsToGenerateMode() throws IOException {
+        CliArguments args = parseWithRequiredDirsOnly();
+        assertEquals(CliMode.GENERATE, args.mode());
+        assertFalse(args.expectedOutputDir().isPresent());
+        assertFalse(args.failOnValidationError());
+    }
+
+    @Test
+    void parsesDiffModeAndValidationFlag() throws IOException {
+        Path tableDir = Files.createDirectories(tempDir.resolve("tables"));
+        Path viewDir = Files.createDirectories(tempDir.resolve("views"));
+        Path functionDir = Files.createDirectories(tempDir.resolve("functions"));
+        Path spDir = Files.createDirectories(tempDir.resolve("procedures"));
+        Path expected = Files.createDirectories(tempDir.resolve("expected"));
+
+        CliArgumentsParser parser = new CliArgumentsParser();
+        CliArguments args = parser.parse(new String[]{
+                "--tableDir", tableDir.toString(),
+                "--viewDir", viewDir.toString(),
+                "--functionDir", functionDir.toString(),
+                "--spDir", spDir.toString(),
+                "--outputDir", tempDir.resolve("out").toString(),
+                "--mode", "diff",
+                "--expectedOutputDir", expected.toString(),
+                "--failOnValidationError", "true"
+        });
+
+        assertEquals(CliMode.DIFF, args.mode());
+        assertTrue(args.expectedOutputDir().isPresent());
+        assertTrue(args.failOnValidationError());
+    }
+
     private CliArguments parseWithRequiredDirsOnly() throws IOException {
         Path tableDir = Files.createDirectories(tempDir.resolve("tables"));
         Path viewDir = Files.createDirectories(tempDir.resolve("views"));

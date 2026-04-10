@@ -15,7 +15,10 @@ public final class CliArgumentsParser {
             "--functionDir",
             "--spDir",
             "--outputDir",
-            "--extraDir"
+            "--extraDir",
+            "--mode",
+            "--expectedOutputDir",
+            "--failOnValidationError"
     );
 
     public CliArguments parse(String[] args) {
@@ -25,20 +28,25 @@ public final class CliArgumentsParser {
 
         Map<String, String> values = parseArgs(args);
 
+        CliMode mode = parseMode(values);
+
         return new CliArguments(
                 requiredExistingDir(values, "--tableDir"),
                 requiredExistingDir(values, "--viewDir"),
                 requiredExistingDir(values, "--functionDir"),
                 requiredExistingDir(values, "--spDir"),
                 requiredOutputDir(values, "--outputDir"),
-                optionalExistingDir(values, "--extraDir")
+                optionalExistingDir(values, "--extraDir"),
+                mode,
+                optionalExistingDir(values, "--expectedOutputDir"),
+                parseBoolean(values, "--failOnValidationError", false)
         );
     }
 
     public String usageText() {
         return String.join(System.lineSeparator(),
                 "Usage:",
-                "  java ... RelationshipDetailMain --tableDir <dir> --viewDir <dir> --functionDir <dir> --spDir <dir> --outputDir <dir> [--extraDir <dir>]",
+                "  java ... RelationshipDetailMain --tableDir <dir> --viewDir <dir> --functionDir <dir> --spDir <dir> --outputDir <dir> [--extraDir <dir>] [--mode <generate|validate|diff>] [--expectedOutputDir <dir>] [--failOnValidationError <true|false>]",
                 "",
                 "Required arguments:",
                 "  --tableDir      Existing directory containing table SQL.",
@@ -48,7 +56,10 @@ public final class CliArgumentsParser {
                 "  --outputDir     Output directory (created if it does not exist).",
                 "",
                 "Optional arguments:",
-                "  --extraDir      Existing directory for extra SQL inputs."
+                "  --extraDir      Existing directory for extra SQL inputs.",
+                "  --mode          generate (default), validate, or diff.",
+                "  --expectedOutputDir Existing directory containing expected relationship_detail.tsv for diff mode.",
+                "  --failOnValidationError In validate mode, exit non-zero when validation issues exist."
         );
     }
 
@@ -79,6 +90,32 @@ public final class CliArgumentsParser {
         }
 
         return values;
+    }
+
+    private CliMode parseMode(Map<String, String> values) {
+        String raw = values.get("--mode");
+        if (raw == null) {
+            return CliMode.GENERATE;
+        }
+        try {
+            return CliMode.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw error("Unsupported mode: " + raw + ". Allowed: generate, validate, diff");
+        }
+    }
+
+    private boolean parseBoolean(Map<String, String> values, String key, boolean defaultValue) {
+        String raw = values.get(key);
+        if (raw == null) {
+            return defaultValue;
+        }
+        if ("true".equalsIgnoreCase(raw)) {
+            return true;
+        }
+        if ("false".equalsIgnoreCase(raw)) {
+            return false;
+        }
+        throw error("Argument " + key + " must be true or false.");
     }
 
     private Path requiredExistingDir(Map<String, String> values, String key) {
