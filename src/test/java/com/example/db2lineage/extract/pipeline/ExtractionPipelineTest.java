@@ -9,6 +9,7 @@ import com.example.db2lineage.parse.SqlSourceCategory;
 import com.example.db2lineage.parse.SqlSourceFile;
 import com.example.db2lineage.parse.SqlStatementParser;
 import com.example.db2lineage.parse.StatementSlice;
+import com.example.db2lineage.parse.StatementSlicer;
 import com.example.db2lineage.resolve.InMemorySchemaMetadataService;
 import org.junit.jupiter.api.Test;
 
@@ -167,6 +168,34 @@ class ExtractionPipelineTest {
         assertEquals("V_SQL", rows.get(0).sourceField());
     }
 
+    @Test
+    void extractDynamicSqlExecLiteralUsesConstantTokenAndExactExecuteLine() {
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.EXTRA_DIR,
+                Path.of("/tmp/dynamic_literal.sql"),
+                Path.of("dynamic_literal.sql"),
+                "SELECT 1;\n@\n\nEXECUTE IMMEDIATE 'DELETE FROM T1';\n@",
+                List.of("SELECT 1;", "@", "", "EXECUTE IMMEDIATE 'DELETE FROM T1';", "@")
+        );
+
+        StatementSlicer slicer = new StatementSlicer();
+        SqlStatementParser parser = new SqlStatementParser();
+        List<ParsedStatementResult> parsed = slicer.slice(sourceFile).stream().map(parser::parse).toList();
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)),
+                parsed
+        );
+
+        RelationshipRow row = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC)
+                .findFirst()
+                .orElseThrow();
+
+        assertEquals("CONSTANT:'DELETE FROM T1'", row.sourceField());
+        assertEquals(4, row.lineNo());
+        assertEquals("EXECUTE IMMEDIATE 'DELETE FROM T1';", row.lineContent());
+    }
+
 
     @Test
     void extractSelectFieldAndExpressionAndClauses() {
@@ -210,6 +239,49 @@ class ExtractionPipelineTest {
         List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))), List.of(parsed));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && r.sourceField().equals("P1")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && r.sourceField().equals("CONSTANT:5")));
+    }
+
+    @Test
+    void extractReturnDependenciesAnchorToReturnLineAndDoNotEmitUnknownForReturn() {
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.FUNCTION_DIR,
+                Path.of("/tmp/get_multiplier_like.sql"),
+                Path.of("get_multiplier_like.sql"),
+                String.join("\n", List.of(
+                        "CREATE OR REPLACE FUNCTION GET_MULTIPLIER ( P_FACTOR INT ) RETURNS INT",
+                        "LANGUAGE SQL",
+                        "BEGIN",
+                        "    RETURN P_FACTOR * 2;",
+                        "END"
+                )),
+                List.of(
+                        "CREATE OR REPLACE FUNCTION GET_MULTIPLIER ( P_FACTOR INT ) RETURNS INT",
+                        "LANGUAGE SQL",
+                        "BEGIN",
+                        "    RETURN P_FACTOR * 2;",
+                        "END"
+                )
+        );
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                5,
+                sourceFile.rawLines(),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && "P_FACTOR".equals(r.sourceField()) && r.lineNo() == 4));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.RETURN_VALUE && "CONSTANT:2".equals(r.sourceField()) && r.lineNo() == 4));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UNKNOWN && r.lineNo() == 4));
     }
 
     @Test

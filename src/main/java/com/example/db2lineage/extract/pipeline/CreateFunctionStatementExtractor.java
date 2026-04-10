@@ -2,7 +2,9 @@ package com.example.db2lineage.extract.pipeline;
 
 import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.extract.RowCollector;
+import com.example.db2lineage.model.ConfidenceLevel;
 import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.model.RowDraft;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.JSQLParserException;
@@ -57,7 +59,23 @@ public final class CreateFunctionStatementExtractor implements StatementExtracto
             }
             try {
                 Expression expression = CCJSqlParserUtil.parseExpression(exprText);
-                ExpressionTokenSupport.addExpressionRows(RelationshipType.RETURN_VALUE, expression, parsedStatement, context, collector, naturalOrder++);
+                for (ExpressionTokenSupport.TokenUse tokenUse : ExpressionTokenSupport.collect(expression, parsedStatement.slice(), lineNo, lineNo)) {
+                    collector.addDraft(new RowDraft(
+                            ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                            ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                            tokenUse.token(),
+                            TargetObjectType.UNKNOWN,
+                            ObjectRelationshipSupport.UNKNOWN_UNRESOLVED_OBJECT,
+                            "",
+                            RelationshipType.RETURN_VALUE,
+                            tokenUse.lineNo(),
+                            tokenUse.lineContent(),
+                            ConfidenceLevel.PARSER,
+                            ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                            naturalOrder + tokenUse.orderOnLine()
+                    ));
+                }
+                naturalOrder++;
             } catch (JSQLParserException ignored) {
                 // narrow fallback: skip unparseable return expression tokenization
             }

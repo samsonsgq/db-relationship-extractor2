@@ -20,16 +20,19 @@ public final class ExecuteStatementExtractor implements StatementExtractor {
         Execute execute = (Execute) parsedStatement.statement().orElseThrow();
         String sql = parsedStatement.slice().statementText();
         if (sql.toUpperCase().contains("EXECUTE IMMEDIATE")) {
+            String sourceToken = ObjectRelationshipSupport.extractDynamicSqlSourceToken(sql);
+            sourceToken = canonicalDynamicSourceToken(sourceToken);
+            LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), "EXECUTE IMMEDIATE", 0);
             collector.addDraft(new RowDraft(
                     ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
                     ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                    ObjectRelationshipSupport.extractDynamicSqlSourceToken(sql),
+                    sourceToken,
                     TargetObjectType.UNKNOWN,
                     ObjectRelationshipSupport.UNKNOWN_DYNAMIC_SQL,
                     "",
                     RelationshipType.DYNAMIC_SQL_EXEC,
-                    parsedStatement.slice().startLine(),
-                    ObjectRelationshipSupport.firstLine(parsedStatement.slice()),
+                    anchor.lineNo(),
+                    anchor.lineContent(),
                     ConfidenceLevel.DYNAMIC_LOW_CONFIDENCE,
                     ObjectRelationshipSupport.statementOrder(context, parsedStatement),
                     0
@@ -58,5 +61,16 @@ public final class ExecuteStatementExtractor implements StatementExtractor {
                 execute.getName(),
                 0
         ));
+    }
+
+    private String canonicalDynamicSourceToken(String sourceToken) {
+        if (sourceToken == null || sourceToken.isBlank()) {
+            return "";
+        }
+        String trimmed = sourceToken.trim();
+        if (trimmed.startsWith("'") && trimmed.endsWith("'")) {
+            return "CONSTANT:" + trimmed;
+        }
+        return trimmed;
     }
 }

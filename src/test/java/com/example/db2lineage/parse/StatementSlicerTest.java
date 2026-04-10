@@ -59,14 +59,36 @@ class StatementSlicerTest {
         assertEquals(1, slices.get(0).endLine());
         assertEquals(0, slices.get(0).ordinalWithinFile());
 
-        assertEquals(3, slices.get(1).startLine());
+        assertEquals(4, slices.get(1).startLine());
         assertEquals(4, slices.get(1).endLine());
-        assertEquals(List.of("", "CREATE VIEW V2 AS SELECT 2 AS Y"), slices.get(1).rawLines());
+        assertEquals(List.of("CREATE VIEW V2 AS SELECT 2 AS Y"), slices.get(1).rawLines());
         assertEquals(1, slices.get(1).ordinalWithinFile());
 
         assertEquals(6, slices.get(2).startLine());
         assertEquals(6, slices.get(2).endLine());
         assertEquals(2, slices.get(2).ordinalWithinFile());
+    }
+
+    @Test
+    void skipsLeadingBlankLinesAfterDelimiterWhenAnchoringStatementStart() {
+        SqlSourceFile file = sourceFile(
+                SqlSourceCategory.EXTRA_DIR,
+                "blanks.sql",
+                List.of(
+                        "SELECT 1",
+                        "@",
+                        "",
+                        "",
+                        "EXECUTE IMMEDIATE 'DELETE FROM T1'",
+                        "@"
+                )
+        );
+
+        List<StatementSlice> slices = slicer.slice(file);
+
+        assertEquals(2, slices.size());
+        assertEquals(5, slices.get(1).startLine());
+        assertEquals(List.of("EXECUTE IMMEDIATE 'DELETE FROM T1'"), slices.get(1).rawLines());
     }
 
     @Test

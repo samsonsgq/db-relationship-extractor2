@@ -14,6 +14,10 @@ public final class UnknownStatementExtractor implements StatementExtractor {
 
     @Override
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
+        if (ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()) == com.example.db2lineage.model.SourceObjectType.FUNCTION
+                && parsedStatement.slice().statementText().stripLeading().toUpperCase().startsWith("RETURN ")) {
+            return;
+        }
         boolean foundRoutineLineage = false;
         for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
             String line = parsedStatement.slice().rawLines().get(i);
