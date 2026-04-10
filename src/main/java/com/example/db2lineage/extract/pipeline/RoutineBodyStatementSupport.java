@@ -48,15 +48,24 @@ final class RoutineBodyStatementSupport {
 
         int bodyStart = -1;
         int bodyEndExclusive = rawLines.size();
+        int beginDepth = 0;
         for (int i = 0; i < rawLines.size(); i++) {
             String upper = rawLines.get(i).trim().toUpperCase();
             if (bodyStart < 0 && upper.startsWith("BEGIN")) {
                 bodyStart = i + 1;
+                beginDepth = 1;
                 continue;
             }
-            if (bodyStart >= 0 && (upper.equals("END") || upper.equals("END;"))) {
-                bodyEndExclusive = i;
-                break;
+            if (bodyStart >= 0) {
+                if (upper.startsWith("BEGIN")) {
+                    beginDepth++;
+                } else if (upper.equals("END") || upper.equals("END;")) {
+                    beginDepth--;
+                    if (beginDepth == 0) {
+                        bodyEndExclusive = i;
+                        break;
+                    }
+                }
             }
         }
 

@@ -45,6 +45,15 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
         )) {
             return;
         }
+        if (RoutineLineageSupport.isTransactionControlStatement(parsedStatement.slice().statementText())) {
+            return;
+        }
+        if (RoutineLineageSupport.isPlainVariableDeclaration(parsedStatement.slice().statementText())) {
+            return;
+        }
+        if (RoutineLineageSupport.isRoutineStructuralStatement(parsedStatement.slice().statementText())) {
+            return;
+        }
 
         String dynamicToken = ObjectRelationshipSupport.extractDynamicSqlSourceToken(parsedStatement.slice().statementText());
         if (!dynamicToken.isBlank()) {

@@ -1,0 +1,77 @@
+package com.example.db2lineage.extract.pipeline;
+
+import com.example.db2lineage.extract.ExtractionContext;
+import com.example.db2lineage.model.RelationshipRow;
+import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.model.TargetObjectType;
+import com.example.db2lineage.parse.ParsedStatementResult;
+import com.example.db2lineage.parse.SqlSourceCategory;
+import com.example.db2lineage.parse.SqlSourceFile;
+import com.example.db2lineage.parse.SqlStatementParser;
+import com.example.db2lineage.parse.StatementSlicer;
+import com.example.db2lineage.resolve.InMemorySchemaMetadataService;
+import org.junit.jupiter.api.Test;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+class PrTestDemoRegressionTest {
+
+    @Test
+    void prTestDemoProceduralRowsFollowContractAndAvoidFalsePositives() throws Exception {
+        Path sqlPath = Path.of("src/main/resources/sample_case/sp/RPT.PR_TEST_DEMO.sql");
+        List<String> rawLines = Files.readAllLines(sqlPath);
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.SP_DIR,
+                sqlPath.toAbsolutePath(),
+                Path.of("RPT.PR_TEST_DEMO.sql"),
+                String.join("\n", rawLines),
+                rawLines
+        );
+
+        StatementSlicer slicer = new StatementSlicer();
+        SqlStatementParser parser = new SqlStatementParser();
+        List<ParsedStatementResult> parsed = slicer.slice(sourceFile).stream().map(parser::parse).toList();
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(parsed)),
+                parsed
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_PROCEDURE
+                && "RPT.PR_TEST_DEMO".equals(r.targetObject())));
+
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CONTROL_FLOW_CONDITION
+                && r.lineContent().contains("RESULT SETS")));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UNKNOWN
+                && r.lineContent().trim().startsWith("DECLARE lv_")));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CONTROL_FLOW_CONDITION
+                && r.lineContent().trim().startsWith("DECLARE")));
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_TABLE
+                && r.targetObjectType() == TargetObjectType.SESSION_TABLE
+                && "SESSION.TMP_STO_EVENT_SOURCE".equals(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "CONSTANT:MESSAGE_TEXT".equals(r.sourceField())
+                && "lv_message_text".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "CONSTANT:ROW_COUNT".equals(r.sourceField())
+                && "lv_row_count".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "CONSTANT:SQLCODE".equals(r.sourceField())
+                && "ln_sqlcode".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "CONSTANT:SQLSTATE".equals(r.sourceField())
+                && "lv_sqlstate".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
+                && "CONSTANT:SQLEXCEPTION".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
+                && "CONSTANT:NOT FOUND".equals(r.sourceField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CALL_PROCEDURE
+                && "RPT.PR_TEST_DEMO".equals(r.targetObject())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UNKNOWN
+                && (r.lineContent().trim().equals("COMMIT;") || r.lineContent().trim().equals("ROLLBACK;"))));
+    }
+}

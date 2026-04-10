@@ -39,6 +39,15 @@ public final class UnknownStatementExtractor implements StatementExtractor {
         )) {
             return;
         }
+        if (RoutineLineageSupport.isTransactionControlStatement(parsedStatement.slice().statementText())) {
+            return;
+        }
+        if (RoutineLineageSupport.isPlainVariableDeclaration(parsedStatement.slice().statementText())) {
+            return;
+        }
+        if (RoutineLineageSupport.isRoutineStructuralStatement(parsedStatement.slice().statementText())) {
+            return;
+        }
 
         collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
                 context,
