@@ -99,7 +99,7 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CTE_DEFINE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CTE_READ));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UNION_INPUT));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_TABLE));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_TABLE), rows.toString());
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_TABLE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_TABLE));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INTO));
@@ -316,6 +316,67 @@ class ExtractionPipelineTest {
     }
 
     @Test
+    void createProcedureExtractsNestedDmlWithExactBodyLineAnchors() {
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.SP_DIR,
+                Path.of("/tmp/p_nested.sql"),
+                Path.of("p_nested.sql"),
+                String.join("\n", List.of(
+                        "CREATE OR REPLACE PROCEDURE P_NESTED()",
+                        "LANGUAGE SQL",
+                        "BEGIN",
+                        "    INSERT INTO T_DST (ID) SELECT ID FROM T_SRC;",
+                        "END",
+                        "@"
+                )),
+                List.of(
+                        "CREATE OR REPLACE PROCEDURE P_NESTED()",
+                        "LANGUAGE SQL",
+                        "BEGIN",
+                        "    INSERT INTO T_DST (ID) SELECT ID FROM T_SRC;",
+                        "END",
+                        "@"
+                )
+        );
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                String.join("\n", sourceFile.rawLines().subList(0, 5)),
+                1,
+                5,
+                sourceFile.rawLines().subList(0, 5),
+                0
+        ));
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CREATE_PROCEDURE && r.sourceObject().equals("P_NESTED")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_TABLE));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_TARGET_COL && "ID".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP && "ID".equals(r.targetField()) && "ID".equals(r.sourceField())));
+    }
+
+    @Test
+    void createViewRowsUseCanonicalObjectNameAsSourceObject() {
+        SqlSourceFile sourceFile = sqlFile("INTERFACE.V1.sql", List.of(
+                "CREATE VIEW INTERFACE.V1 AS SELECT T1.ID AS ID FROM T1;"
+        ), SqlSourceCategory.VIEW_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().allMatch(r -> r.sourceObject().equals("INTERFACE.V1")));
+    }
+
+    @Test
     void phase10FunctionAndProcedureParamFallbackToPositionalSlotsWhenUnknown() {
         SqlSourceFile sourceFile = sqlFile("phase10_fn.sql", List.of(
                 "SET V_OUT = FN_SCORE(P_ID, CURRENT DATE, 1);",
@@ -332,7 +393,7 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$2".equals(r.targetField()) && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$3".equals(r.targetField()) && "CONSTANT:1".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
-                && "phase10_fn.sql".equals(r.targetObject())
+                && "phase10_fn".equals(r.targetObject())
                 && "V_OUT".equals(r.targetField())
                 && "FN_SCORE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField())));

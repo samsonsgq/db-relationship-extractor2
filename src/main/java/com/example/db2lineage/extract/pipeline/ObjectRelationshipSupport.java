@@ -36,6 +36,8 @@ final class ObjectRelationshipSupport {
 
     private static final Pattern CREATE_PROCEDURE_NAME = Pattern.compile("(?i)\\bCREATE\\s+(?:OR\\s+REPLACE\\s+)?PROCEDURE\\s+([A-Z0-9_.$\\\"]+)");
     private static final Pattern CREATE_FUNCTION_NAME = Pattern.compile("(?i)\\bCREATE\\s+(?:OR\\s+REPLACE\\s+)?FUNCTION\\s+([A-Z0-9_.$\\\"]+)");
+    private static final Pattern CREATE_VIEW_NAME = Pattern.compile("(?i)\\bCREATE\\s+(?:OR\\s+REPLACE\\s+)?VIEW\\s+([A-Z0-9_.$\\\"]+)");
+    private static final Pattern CREATE_TABLE_NAME = Pattern.compile("(?i)\\bCREATE\\s+TABLE\\s+([A-Z0-9_.$\\\"]+)");
     private static final Pattern EXECUTE_IMMEDIATE_TOKEN = Pattern.compile("(?i)\\bEXECUTE\\s+IMMEDIATE\\s+([^;]+)");
 
     private ObjectRelationshipSupport() {
@@ -91,9 +93,23 @@ final class ObjectRelationshipSupport {
         if (functionMatcher.find()) {
             return normalizeObjectName(functionMatcher.group(1));
         }
+        Matcher viewMatcher = CREATE_VIEW_NAME.matcher(statementText);
+        if (viewMatcher.find()) {
+            return normalizeObjectName(viewMatcher.group(1));
+        }
+        Matcher tableMatcher = CREATE_TABLE_NAME.matcher(statementText);
+        if (tableMatcher.find()) {
+            return normalizeObjectName(tableMatcher.group(1));
+        }
 
         String relative = slice.sourceFile().relativePath().toString().replace('\\', '/');
-        return relative.isBlank() ? slice.sourceFile().absolutePath().toString() : relative;
+        if (relative.isBlank()) {
+            return slice.sourceFile().absolutePath().toString();
+        }
+        int slash = relative.lastIndexOf('/');
+        String fileName = slash >= 0 ? relative.substring(slash + 1) : relative;
+        int dot = fileName.lastIndexOf('.');
+        return dot > 0 ? fileName.substring(0, dot) : fileName;
     }
 
     static int statementOrder(ExtractionContext context, ParsedStatementResult parsedStatement) {
