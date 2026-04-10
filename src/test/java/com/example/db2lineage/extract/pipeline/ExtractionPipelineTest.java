@@ -3,6 +3,7 @@ package com.example.db2lineage.extract.pipeline;
 import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.model.RelationshipRow;
 import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import com.example.db2lineage.parse.SqlSourceCategory;
 import com.example.db2lineage.parse.SqlSourceFile;
@@ -309,7 +310,8 @@ class ExtractionPipelineTest {
                 && "CONSTANT:RETURNED_SQLSTATE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
                 && "P_LOAD".equals(r.targetObject())
-                && "V_ERR".equals(r.targetField())));
+                && r.targetObjectType() == TargetObjectType.PROCEDURE
+                && r.targetField().isEmpty()));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC && "UNKNOWN_DYNAMIC_SQL".equals(r.targetObject())));
     }
 
@@ -414,6 +416,79 @@ class ExtractionPipelineTest {
 
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC));
+    }
+
+    @Test
+    void phase13ParsesCallWithoutArgumentListAsProcedureInvocation() {
+        SqlSourceFile sourceFile = sqlFile("phase13_call_no_args.sql", List.of(
+                "CALL P_PING;"
+        ), SqlSourceCategory.EXTRA_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PROCEDURE
+                && "P_PING".equals(r.targetObject())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP));
+    }
+
+    @Test
+    void phase13TableFunctionPipeRowsMapToDeclaredReturnColumns() {
+        SqlSourceFile sourceFile = sqlFile("phase13_table_fn.sql", List.of(
+                "CREATE FUNCTION F_RET()",
+                "RETURNS TABLE (C1 INT, C2 DECIMAL(10,2))",
+                "LANGUAGE SQL",
+                "BEGIN",
+                "  PIPE (SRC.A, 1);",
+                "  RETURN;",
+                "END"
+        ), SqlSourceCategory.FUNCTION_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                sourceFile.getLineCount(),
+                sourceFile.rawLines(),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.TABLE_FUNCTION_RETURN_MAP
+                && "F_RET".equals(r.targetObject())
+                && "C1".equals(r.targetField())
+                && "SRC.A".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.TABLE_FUNCTION_RETURN_MAP
+                && "F_RET".equals(r.targetObject())
+                && "C2".equals(r.targetField())
+                && "CONSTANT:1".equals(r.sourceField())));
+    }
+
+    @Test
+    void phase13DoesNotTreatQualifiedUserColumnAsSpecialRegisterConstant() {
+        SqlSourceFile sourceFile = sqlFile("phase13_user_col.sql", List.of(
+                "SELECT T.USER FROM T;"
+        ), SqlSourceCategory.TABLE_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
+                && "T.USER".equals(r.sourceField())));
+        assertTrue(rows.stream().noneMatch(r -> r.sourceField().equals("CONSTANT:T.USER")));
     }
 
     @Test
