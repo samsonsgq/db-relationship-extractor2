@@ -12,7 +12,10 @@ import com.example.db2lineage.resolve.InMemorySchemaMetadataService;
 import org.junit.jupiter.api.Test;
 
 import java.nio.file.Path;
+import java.util.Comparator;
 import java.util.List;
+import java.util.Map;
+import java.util.stream.Collectors;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
@@ -316,6 +319,78 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$3".equals(r.targetField()) && "CONSTANT:1".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$2".equals(r.targetField())));
+    }
+
+    @Test
+    void phase11LineAnchoringAndPerLineSequenceUseOriginalRawSqlLines() {
+        List<String> rawLines = List.of(
+                "INSERT INTO T_DST (A, B)",
+                "  SELECT S.X, S.Y",
+                "  FROM T_SRC S;",
+                "UPDATE T_DST",
+                "  SET  A = S.X,  B = S.Y, C = 1",
+                "  FROM T_SRC S;"
+        );
+        SqlSourceFile sourceFile = sqlFile("phase11_anchor.sql", rawLines, SqlSourceCategory.TABLE_DIR);
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult insert = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                "INSERT INTO T_DST (A, B)\nSELECT S.X, S.Y\nFROM T_SRC S;",
+                1,
+                3,
+                List.of(
+                        "INSERT INTO T_DST (A, B)",
+                        "SELECT S.X, S.Y",
+                        "FROM T_SRC S;"
+                ),
+                0
+        ));
+        ParsedStatementResult update = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                "UPDATE T_DST SET A = S.X, B = S.Y, C = 1 FROM T_SRC S;",
+                4,
+                6,
+                List.of(
+                        "UPDATE T_DST",
+                        "SET A = S.X, B = S.Y, C = 1",
+                        "FROM T_SRC S;"
+                ),
+                1
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(insert, update))),
+                List.of(insert, update)
+        );
+
+        RelationshipRow insertMap = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP && "A".equals(r.targetField()) && "S.X".equals(r.sourceField()))
+                .findFirst()
+                .orElseThrow();
+        assertEquals(2, insertMap.lineNo());
+        assertEquals("  SELECT S.X, S.Y", insertMap.lineContent());
+
+        List<RelationshipRow> updateSetRows = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP && r.lineNo() == 5)
+                .sorted(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                .toList();
+        assertTrue(updateSetRows.size() >= 3);
+        assertEquals("  SET  A = S.X,  B = S.Y, C = 1", updateSetRows.get(0).lineContent());
+
+        Map<Integer, List<RelationshipRow>> byLine = rows.stream()
+                .collect(Collectors.groupingBy(RelationshipRow::lineNo));
+        for (List<RelationshipRow> lineRows : byLine.values()) {
+            List<RelationshipRow> ordered = lineRows.stream()
+                    .sorted(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                    .toList();
+            for (int i = 0; i < ordered.size(); i++) {
+                assertEquals(i, ordered.get(i).lineRelationSeq());
+                assertEquals(sourceFile.getRawLine(ordered.get(i).lineNo()), ordered.get(i).lineContent());
+            }
+        }
     }
 
     private SqlSourceFile sqlFile(String name, List<String> lines, SqlSourceCategory category) {

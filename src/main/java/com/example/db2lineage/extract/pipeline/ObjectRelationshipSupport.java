@@ -106,10 +106,7 @@ final class ObjectRelationshipSupport {
     }
 
     static String firstLine(StatementSlice slice) {
-        if (!slice.rawLines().isEmpty()) {
-            return slice.rawLines().get(0);
-        }
-        return "";
+        return LineAnchorResolver.statementStart(slice, 0).lineContent();
     }
 
     static String normalizeObjectName(String objectName) {
