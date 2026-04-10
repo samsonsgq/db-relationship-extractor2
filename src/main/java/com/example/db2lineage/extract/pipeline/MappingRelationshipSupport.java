@@ -168,21 +168,8 @@ final class MappingRelationshipSupport {
     }
 
     static TokenPosition locateToken(StatementSlice slice, String token, int fallbackOrder) {
-        String needle = token == null ? "" : token;
-        List<String> lines = slice.rawLines();
-        int bestLine = slice.startLine();
-        String bestContent = ObjectRelationshipSupport.firstLine(slice);
-        int bestIndex = Integer.MAX_VALUE;
-        for (int i = 0; i < lines.size(); i++) {
-            String line = lines.get(i);
-            int idx = line.toUpperCase(Locale.ROOT).indexOf(needle.toUpperCase(Locale.ROOT));
-            if (idx >= 0 && idx < bestIndex) {
-                bestIndex = idx;
-                bestLine = slice.startLine() + i;
-                bestContent = line;
-            }
-        }
-        return new TokenPosition(bestLine, bestContent, bestIndex == Integer.MAX_VALUE ? fallbackOrder : bestIndex);
+        LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(slice, token, fallbackOrder);
+        return new TokenPosition(anchor.lineNo(), anchor.lineContent(), anchor.orderOnLine());
     }
 
     record TokenPosition(int lineNo, String lineContent, int orderOnLine) {

@@ -143,7 +143,7 @@ final class ExpressionTokenSupport {
         Set<String> seen = new HashSet<>();
         int fallbackOrder = 0;
         for (String token : rawTokens) {
-            TokenPosition p = locateToken(slice, token, fallbackOrder);
+            LineAnchorResolver.LineAnchor p = LineAnchorResolver.token(slice, token, fallbackOrder);
             String dedupeKey = token + "|" + p.lineNo() + "|" + p.orderOnLine();
             if (seen.add(dedupeKey)) {
                 uses.add(new TokenUse(token, p.lineNo(), p.lineContent(), p.orderOnLine()));
@@ -177,38 +177,6 @@ final class ExpressionTokenSupport {
         }
     }
 
-    private static TokenPosition locateToken(StatementSlice slice, String token, int fallbackOrder) {
-        String needle = searchable(token);
-        List<String> rawLines = slice.rawLines();
-        int bestLine = slice.startLine();
-        String lineContent = rawLines.isEmpty() ? ObjectRelationshipSupport.firstLine(slice) : rawLines.get(0);
-        int bestIndex = Integer.MAX_VALUE;
-        for (int i = 0; i < rawLines.size(); i++) {
-            String line = rawLines.get(i);
-            int idx = line.toUpperCase(Locale.ROOT).indexOf(needle.toUpperCase(Locale.ROOT));
-            if (idx >= 0 && idx < bestIndex) {
-                bestIndex = idx;
-                bestLine = slice.startLine() + i;
-                lineContent = line;
-            }
-        }
-        int order = bestIndex == Integer.MAX_VALUE ? fallbackOrder : bestIndex;
-        return new TokenPosition(bestLine, lineContent, order);
-    }
-
-    private static String searchable(String token) {
-        if (token.startsWith("CONSTANT:")) {
-            return token.substring("CONSTANT:".length());
-        }
-        if (token.startsWith("FUNCTION:")) {
-            return token.substring("FUNCTION:".length());
-        }
-        return token;
-    }
-
     record TokenUse(String token, int lineNo, String lineContent, int orderOnLine) {
-    }
-
-    private record TokenPosition(int lineNo, String lineContent, int orderOnLine) {
     }
 }
