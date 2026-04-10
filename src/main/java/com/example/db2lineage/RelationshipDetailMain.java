@@ -3,6 +3,8 @@ package com.example.db2lineage;
 import com.example.db2lineage.cli.CliArguments;
 import com.example.db2lineage.cli.CliArgumentsParser;
 import com.example.db2lineage.emit.RelationshipDetailTsvWriter;
+import com.example.db2lineage.extract.ExtractionContext;
+import com.example.db2lineage.extract.pipeline.ExtractionPipeline;
 import com.example.db2lineage.model.RelationshipRow;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import com.example.db2lineage.parse.SqlSourceFile;
@@ -12,7 +14,6 @@ import com.example.db2lineage.parse.StatementSlice;
 import com.example.db2lineage.parse.StatementSlicer;
 
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.List;
 
 public final class RelationshipDetailMain {
@@ -57,8 +58,8 @@ public final class RelationshipDetailMain {
                 parseFailedCount
         );
 
-        // Phase 4: parsing pipeline scaffold only. Relationship extraction is intentionally not implemented yet.
-        List<RelationshipRow> rows = Collections.emptyList();
+        ExtractionContext extractionContext = new ExtractionContext(sourceFiles);
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(extractionContext, parsedStatements);
         new RelationshipDetailTsvWriter().writeToOutputDir(cliArguments.outputDir(), rows);
     }
 
