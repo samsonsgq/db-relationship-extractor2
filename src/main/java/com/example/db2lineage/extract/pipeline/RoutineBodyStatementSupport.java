@@ -72,14 +72,14 @@ final class RoutineBodyStatementSupport {
         for (int i = bodyStart; i < bodyEndExclusive; i++) {
             String line = rawLines.get(i);
             int lineNo = routineSlice.startLine() + i;
-            if (statementStartLine < 0) {
+            if (statementStartLine < 0 && !isIgnorableLine(line)) {
                 statementStartLine = lineNo;
             }
             current.add(line);
 
             if (endsStatement(line, state)) {
                 String statementText = joinAndTrimTrailingDelimiter(current);
-                if (!statementText.isBlank()) {
+                if (!statementText.isBlank() && statementStartLine >= 0) {
                     result.add(new StatementSlice(
                             routineSlice.sourceFile(),
                             routineSlice.sourceCategory(),
@@ -101,7 +101,7 @@ final class RoutineBodyStatementSupport {
 
         if (!current.isEmpty()) {
             String statementText = String.join("\n", current).trim();
-            if (!statementText.isBlank()) {
+            if (!statementText.isBlank() && statementStartLine >= 0) {
                 int endLine = routineSlice.startLine() + bodyEndExclusive - 1;
                 result.add(new StatementSlice(
                         routineSlice.sourceFile(),
@@ -124,6 +124,11 @@ final class RoutineBodyStatementSupport {
         }
         String trimmed = line.trim();
         return trimmed.endsWith(";");
+    }
+
+    private static boolean isIgnorableLine(String line) {
+        String trimmed = line == null ? "" : line.trim();
+        return trimmed.isEmpty() || trimmed.startsWith("--");
     }
 
     private static String joinAndTrimTrailingDelimiter(List<String> lines) {

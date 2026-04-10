@@ -465,11 +465,64 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$2".equals(r.targetField()) && "CONSTANT:CURRENT DATE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_PARAM_MAP && "FN_SCORE".equals(r.targetObject()) && "$3".equals(r.targetField()) && "CONSTANT:1".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
-                && "phase10_fn".equals(r.targetObject())
+                && "PHASE10_FN".equals(r.targetObject())
                 && "V_OUT".equals(r.targetField())
                 && "FN_SCORE".equals(r.sourceField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$2".equals(r.targetField())));
+    }
+
+    @Test
+    void scriptSourceObjectFallbackUsesUppercaseFilenameStem() {
+        SqlSourceFile sourceFile = sqlFile("extra_patterns.sql", List.of(
+                "SELECT 1 FROM SYSIBM.SYSDUMMY1;"
+        ), SqlSourceCategory.EXTRA_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().allMatch(r -> "EXTRA_PATTERNS".equals(r.sourceObject())));
+    }
+
+    @Test
+    void routineNestedStatementAnchorsSkipLeadingBlankAndCommentLines() {
+        SqlSourceFile sourceFile = sqlFile("p_anchor.sql", List.of(
+                "CREATE OR REPLACE PROCEDURE P_ANCHOR()",
+                "LANGUAGE SQL",
+                "BEGIN",
+                "",
+                "    -- comment before statement",
+                "    SET V_SQL = 'DELETE FROM T1';",
+                "    EXECUTE IMMEDIATE V_SQL;",
+                "END",
+                "@"
+        ), SqlSourceCategory.SP_DIR);
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                String.join("\n", sourceFile.rawLines().subList(0, 8)),
+                1,
+                8,
+                sourceFile.rawLines().subList(0, 8),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r ->
+                r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC
+                        && r.lineNo() == 7
+                        && "    EXECUTE IMMEDIATE V_SQL;".equals(r.lineContent())
+        ));
     }
 
     @Test
