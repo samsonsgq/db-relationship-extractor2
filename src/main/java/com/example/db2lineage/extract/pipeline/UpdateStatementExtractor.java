@@ -5,9 +5,11 @@ import com.example.db2lineage.extract.RowCollector;
 import com.example.db2lineage.model.RelationshipType;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
+import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.statement.select.Join;
 import net.sf.jsqlparser.statement.select.WithItem;
 import net.sf.jsqlparser.statement.update.Update;
+import net.sf.jsqlparser.statement.update.UpdateSet;
 
 import java.util.HashSet;
 import java.util.List;
@@ -65,6 +67,33 @@ public final class UpdateStatementExtractor implements StatementExtractor {
             collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
                     context, parsedStatement, relationship, targetType, ref.objectName(), naturalOrder++
             ));
+        }
+
+        if (update.getUpdateSets() != null) {
+            for (UpdateSet updateSet : update.getUpdateSets()) {
+                if (updateSet.getValues() == null) {
+                    continue;
+                }
+                for (Object value : updateSet.getValues()) {
+                    if (value instanceof Expression expression) {
+                        ExpressionTokenSupport.addExpressionRows(RelationshipType.UPDATE_SET, expression, parsedStatement, context, collector, naturalOrder++);
+                    }
+                }
+            }
+        }
+
+        ExpressionTokenSupport.addExpressionRows(RelationshipType.WHERE, update.getWhere(), parsedStatement, context, collector, naturalOrder++);
+
+        if (update.getJoins() != null) {
+            for (Join join : update.getJoins()) {
+                if (join.getOnExpressions() != null) {
+                    for (Expression onExpression : join.getOnExpressions()) {
+                        ExpressionTokenSupport.addExpressionRows(RelationshipType.JOIN_ON, onExpression, parsedStatement, context, collector, naturalOrder++);
+                    }
+                } else {
+                    ExpressionTokenSupport.addExpressionRows(RelationshipType.JOIN_ON, join.getOnExpression(), parsedStatement, context, collector, naturalOrder++);
+                }
+            }
         }
     }
 }
