@@ -9,6 +9,9 @@ public record CliArguments(
         Path functionDir,
         Path spDir,
         Path outputDir,
-        Optional<Path> extraDir
+        Optional<Path> extraDir,
+        CliMode mode,
+        Optional<Path> expectedOutputDir,
+        boolean failOnValidationError
 ) {
 }

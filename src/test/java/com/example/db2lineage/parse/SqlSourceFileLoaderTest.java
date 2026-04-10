@@ -1,6 +1,7 @@
 package com.example.db2lineage.parse;
 
 import com.example.db2lineage.cli.CliArguments;
+import com.example.db2lineage.cli.CliMode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -34,7 +35,7 @@ class SqlSourceFileLoaderTest {
         writeFile(spDir.resolve("sp_01.sql"), "CREATE PROCEDURE P1() LANGUAGE SQL BEGIN END;\n");
         writeFile(extraDir.resolve("notes.sql"), "VALUES 1;\n");
 
-        CliArguments cli = new CliArguments(tableDir, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.of(extraDir));
+        CliArguments cli = new CliArguments(tableDir, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.of(extraDir), CliMode.GENERATE, Optional.empty(), false);
 
         List<SqlSourceFile> files = new SqlSourceFileLoader().load(cli);
 
@@ -83,7 +84,7 @@ class SqlSourceFileLoaderTest {
         writeFile(tableDir.resolve(".hidden.sql"), "SHOULD_NOT_LOAD\n");
         writeFile(tableDir.resolve(".hidden-dir/d.sql"), "SHOULD_NOT_LOAD\n");
 
-        CliArguments cli = new CliArguments(tableDir, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.empty());
+        CliArguments cli = new CliArguments(tableDir, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.empty(), CliMode.GENERATE, Optional.empty(), false);
         List<SqlSourceFile> files = new SqlSourceFileLoader().load(cli);
 
         List<String> relativePaths = files.stream().map(f -> f.relativePath().toString().replace('\\', '/')).toList();
@@ -107,7 +108,7 @@ class SqlSourceFileLoaderTest {
         writeFile(spDir.resolve("s.sql"), "VALUES 1;\n");
         writeFile(extraDir.resolve("e.sql"), "VALUES 1;\n");
 
-        CliArguments cli = new CliArguments(tableDir, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.of(extraDir));
+        CliArguments cli = new CliArguments(tableDir, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.of(extraDir), CliMode.GENERATE, Optional.empty(), false);
         List<SqlSourceFile> files = new SqlSourceFileLoader().load(cli);
 
         assertEquals(List.of(
@@ -130,7 +131,7 @@ class SqlSourceFileLoaderTest {
 
         Path duplicateFile = writeFile(child.resolve("dup.sql"), "VALUES 1;\n");
 
-        CliArguments cli = new CliArguments(parent, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.of(child));
+        CliArguments cli = new CliArguments(parent, viewDir, functionDir, spDir, tempDir.resolve("out"), Optional.of(child), CliMode.GENERATE, Optional.empty(), false);
         List<SqlSourceFile> files = new SqlSourceFileLoader().load(cli);
 
         long dupCount = files.stream()
