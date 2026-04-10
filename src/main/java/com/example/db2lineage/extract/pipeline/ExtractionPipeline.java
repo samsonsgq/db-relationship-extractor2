@@ -24,6 +24,8 @@ public final class ExtractionPipeline {
                 new CreateFunctionStatementExtractor(),
                 new CreateProcedureStatementExtractor(),
                 new TruncateStatementExtractor(),
+                new ExecuteStatementExtractor(),
+                new UnknownStatementExtractor(),
                 new ProceduralFallbackStatementExtractor()
         ));
     }
