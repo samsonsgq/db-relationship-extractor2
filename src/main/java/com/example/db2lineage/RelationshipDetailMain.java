@@ -11,7 +11,6 @@ import com.example.db2lineage.parse.SqlStatementParser;
 import com.example.db2lineage.parse.StatementSlice;
 import com.example.db2lineage.parse.StatementSlicer;
 
-import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -60,8 +59,7 @@ public final class RelationshipDetailMain {
 
         // Phase 4: parsing pipeline scaffold only. Relationship extraction is intentionally not implemented yet.
         List<RelationshipRow> rows = Collections.emptyList();
-        Path outputFile = cliArguments.outputDir().resolve("relationship_detail.tsv");
-        new RelationshipDetailTsvWriter().write(outputFile, rows);
+        new RelationshipDetailTsvWriter().writeToOutputDir(cliArguments.outputDir(), rows);
     }
 
     private static void logStartup(CliArguments args) {

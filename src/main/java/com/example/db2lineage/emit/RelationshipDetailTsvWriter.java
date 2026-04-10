@@ -11,45 +11,28 @@ import java.util.List;
 
 public final class RelationshipDetailTsvWriter {
 
-    private static final String HEADER = String.join("\t",
-            "source_object_type",
-            "source_object",
-            "source_field",
-            "target_object_type",
-            "target_object",
-            "target_field",
-            "relationship",
-            "line_no",
-            "line_relation_seq",
-            "line_content",
-            "confidence"
-    );
+    public static final String HEADER = RelationshipRow.TSV_HEADER;
+    public static final String OUTPUT_FILE_NAME = "relationship_detail.tsv";
 
-    public void write(Path outputFile, List<RelationshipRow> rows) throws IOException {
-        Files.createDirectories(outputFile.getParent());
+    public Path writeToOutputDir(Path outputDir, List<RelationshipRow> rows) throws IOException {
+        return write(outputDir.resolve(OUTPUT_FILE_NAME), rows);
+    }
+
+    public Path write(Path outputFile, List<RelationshipRow> rows) throws IOException {
+        if (outputFile.getParent() != null) {
+            Files.createDirectories(outputFile.getParent());
+        }
+
+        List<RelationshipRow> sortedRows = new ArrayList<>(rows);
+        sortedRows.sort(RelationshipRow.STABLE_OUTPUT_COMPARATOR);
 
         List<String> lines = new ArrayList<>();
         lines.add(HEADER);
-        for (RelationshipRow row : rows) {
-            lines.add(toLine(row));
+        for (RelationshipRow row : sortedRows) {
+            lines.add(row.toTsvLine());
         }
 
         Files.write(outputFile, lines, StandardCharsets.UTF_8);
-    }
-
-    private String toLine(RelationshipRow row) {
-        return String.join("\t",
-                row.sourceObjectType().name(),
-                row.sourceObject(),
-                row.sourceField(),
-                row.targetObjectType().name(),
-                row.targetObject(),
-                row.targetField(),
-                row.relationship().name(),
-                Integer.toString(row.lineNo()),
-                Integer.toString(row.lineRelationSeq()),
-                row.lineContent(),
-                row.confidence().name()
-        );
+        return outputFile;
     }
 }
