@@ -43,6 +43,10 @@ final class ExpressionTokenSupport {
     }
 
     static List<TokenUse> collect(Expression expression, StatementSlice slice) {
+        return collect(expression, slice, slice.startLine(), slice.endLine());
+    }
+
+    static List<TokenUse> collect(Expression expression, StatementSlice slice, int startLine, int endLine) {
         if (expression == null) {
             return List.of();
         }
@@ -142,8 +146,14 @@ final class ExpressionTokenSupport {
         List<TokenUse> uses = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         int fallbackOrder = 0;
+        int boundedStart = Math.max(slice.startLine(), startLine);
+        int boundedEnd = Math.min(slice.endLine(), endLine);
+        if (boundedStart > boundedEnd) {
+            boundedStart = slice.startLine();
+            boundedEnd = slice.endLine();
+        }
         for (String token : rawTokens) {
-            LineAnchorResolver.LineAnchor p = LineAnchorResolver.token(slice, token, fallbackOrder);
+            LineAnchorResolver.LineAnchor p = tokenInRange(slice, token, fallbackOrder, boundedStart, boundedEnd);
             String dedupeKey = token + "|" + p.lineNo() + "|" + p.orderOnLine();
             if (seen.add(dedupeKey)) {
                 uses.add(new TokenUse(token, p.lineNo(), p.lineContent(), p.orderOnLine()));
@@ -151,6 +161,39 @@ final class ExpressionTokenSupport {
             fallbackOrder++;
         }
         return List.copyOf(uses);
+    }
+
+    private static LineAnchorResolver.LineAnchor tokenInRange(StatementSlice slice,
+                                                              String token,
+                                                              int fallbackOrderOnLine,
+                                                              int startLine,
+                                                              int endLine) {
+        String needle = searchableToken(token);
+        if (needle.isBlank()) {
+            return LineAnchorResolver.statementStart(slice, fallbackOrderOnLine);
+        }
+        String upperNeedle = needle.toUpperCase(Locale.ROOT);
+        for (int lineNo = startLine; lineNo <= endLine; lineNo++) {
+            String line = slice.sourceFile().getRawLine(lineNo);
+            int idx = line.toUpperCase(Locale.ROOT).indexOf(upperNeedle);
+            if (idx >= 0) {
+                return new LineAnchorResolver.LineAnchor(lineNo, line, idx, true);
+            }
+        }
+        return new LineAnchorResolver.LineAnchor(startLine, slice.sourceFile().getRawLine(startLine), Math.max(0, fallbackOrderOnLine), false);
+    }
+
+    private static String searchableToken(String token) {
+        if (token == null) {
+            return "";
+        }
+        if (token.startsWith("CONSTANT:")) {
+            return token.substring("CONSTANT:".length());
+        }
+        if (token.startsWith("FUNCTION:")) {
+            return token.substring("FUNCTION:".length());
+        }
+        return token;
     }
 
     static void addExpressionRows(RelationshipType relationship,

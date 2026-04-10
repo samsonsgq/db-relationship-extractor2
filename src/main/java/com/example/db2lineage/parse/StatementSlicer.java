@@ -30,6 +30,9 @@ public final class StatementSlicer {
             }
 
             if (startLine == -1) {
+                if (line.isBlank()) {
+                    continue;
+                }
                 startLine = lineNo;
             }
             currentLines.add(line);

@@ -17,6 +17,10 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
 
     @Override
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
+        if (ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()) == com.example.db2lineage.model.SourceObjectType.FUNCTION
+                && parsedStatement.slice().statementText().stripLeading().toUpperCase().startsWith("RETURN")) {
+            return;
+        }
         int baseOrder = 0;
         boolean foundRoutineLineage = false;
         for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
@@ -44,16 +48,21 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
 
         String dynamicToken = ObjectRelationshipSupport.extractDynamicSqlSourceToken(parsedStatement.slice().statementText());
         if (!dynamicToken.isBlank()) {
+            String normalizedDynamicToken = dynamicToken.trim();
+            if (normalizedDynamicToken.startsWith("'") && normalizedDynamicToken.endsWith("'")) {
+                normalizedDynamicToken = "CONSTANT:" + normalizedDynamicToken;
+            }
+            LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), "EXECUTE IMMEDIATE", 0);
             collector.addDraft(new RowDraft(
                     ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
                     ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                    dynamicToken,
+                    normalizedDynamicToken,
                     TargetObjectType.UNKNOWN,
                     ObjectRelationshipSupport.UNKNOWN_DYNAMIC_SQL,
                     "",
                     RelationshipType.DYNAMIC_SQL_EXEC,
-                    parsedStatement.slice().startLine(),
-                    ObjectRelationshipSupport.firstLine(parsedStatement.slice()),
+                    anchor.lineNo(),
+                    anchor.lineContent(),
                     ConfidenceLevel.DYNAMIC_LOW_CONFIDENCE,
                     ObjectRelationshipSupport.statementOrder(context, parsedStatement),
                     0
