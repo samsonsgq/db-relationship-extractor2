@@ -1,4 +1,0 @@
-CREATE TABLE TABLE_A (
-    COL_A VARCHAR(20)
-)
-@
