@@ -28,6 +28,7 @@ public final class CreateProcedureStatementExtractor implements StatementExtract
                 0
         ));
         RoutineBodyStatementSupport.extractNestedStatements(parsedStatement, context, collector);
+        RoutineLineageSupport.extractProceduralLinesFromSlice(parsedStatement, context, collector);
     }
 
     private String extractName(List<String> declarationParts) {

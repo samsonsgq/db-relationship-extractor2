@@ -49,6 +49,9 @@ final class RoutineLineageSupport {
                                ExtractionContext context,
                                RowCollector collector,
                                int baseNaturalOrder) {
+        if (line != null && line.trim().toUpperCase(Locale.ROOT).startsWith("RESULT SETS")) {
+            return false;
+        }
         if (extractCall(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
@@ -70,6 +73,9 @@ final class RoutineLineageSupport {
         if (extractDeclareGlobalTemporaryTable(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
+        if (line != null && line.trim().toUpperCase(Locale.ROOT).startsWith("DECLARE")) {
+            return false;
+        }
         if (extractControlFlowCondition(line, lineNo, parsedStatement, context, collector, baseNaturalOrder)) {
             return true;
         }
@@ -78,6 +84,132 @@ final class RoutineLineageSupport {
 
     static boolean isTransactionControlStatement(String text) {
         return text != null && TRANSACTION_CONTROL_PATTERN.matcher(text.trim()).matches();
+    }
+
+    static void extractProceduralLinesFromSlice(ParsedStatementResult parsedStatement,
+                                                ExtractionContext context,
+                                                RowCollector collector) {
+        int bodyStartIdx = 0;
+        int bodyEndIdx = parsedStatement.slice().rawLines().size() - 1;
+        for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
+            if (parsedStatement.slice().rawLines().get(i).trim().equalsIgnoreCase("BEGIN")) {
+                bodyStartIdx = i + 1;
+                break;
+            }
+        }
+        for (int i = parsedStatement.slice().rawLines().size() - 1; i >= bodyStartIdx; i--) {
+            String trimmed = parsedStatement.slice().rawLines().get(i).trim();
+            if (trimmed.equalsIgnoreCase("END") || trimmed.equalsIgnoreCase("END;")) {
+                bodyEndIdx = i - 1;
+                break;
+            }
+        }
+        int baseOrder = 500_000;
+        for (int i = bodyStartIdx; i <= bodyEndIdx; i++) {
+            String line = parsedStatement.slice().rawLines().get(i);
+            int lineNo = parsedStatement.slice().startLine() + i;
+            extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100);
+        }
+        extractStatementLevelProceduralMappings(parsedStatement, context, collector, baseOrder + 10_000_000, bodyStartIdx, bodyEndIdx);
+    }
+
+    private static void extractStatementLevelProceduralMappings(ParsedStatementResult parsedStatement,
+                                                                ExtractionContext context,
+                                                                RowCollector collector,
+                                                                int baseOrder,
+                                                                int bodyStartIdx,
+                                                                int bodyEndIdx) {
+        StringBuilder statement = new StringBuilder();
+        int statementStart = -1;
+        List<String> raw = parsedStatement.slice().rawLines();
+        for (int i = bodyStartIdx; i <= bodyEndIdx && i < raw.size(); i++) {
+            String line = raw.get(i);
+            if (statementStart < 0 && !line.trim().isEmpty() && !line.trim().startsWith("--")) {
+                statementStart = parsedStatement.slice().startLine() + i;
+            }
+            statement.append(line).append('\n');
+            if (!line.trim().endsWith(";")) {
+                continue;
+            }
+            int statementEnd = parsedStatement.slice().startLine() + i;
+            String text = statement.toString().trim();
+            if (!text.isEmpty()) {
+                extractCallStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 1000);
+                extractFetchStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 2000);
+            }
+            statement.setLength(0);
+            statementStart = -1;
+        }
+    }
+
+    private static void extractCallStatement(String statementText,
+                                             int startLine,
+                                             int endLine,
+                                             ParsedStatementResult parsedStatement,
+                                             ExtractionContext context,
+                                             RowCollector collector,
+                                             int baseOrder) {
+        String normalized = statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
+        Matcher call = Pattern.compile("(?is)^\\s*CALL\\s+([A-Z0-9_.$\\\"]+)\\s*\\((.*)\\)\\s*;?\\s*$").matcher(normalized);
+        if (!call.find()) {
+            return;
+        }
+        String callable = call.group(1).trim();
+        List<String> args = splitArgs(call.group(2));
+        String callLine = parsedStatement.slice().sourceFile().getRawLine(startLine);
+        collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.PROCEDURE, callable, "",
+                RelationshipType.CALL_PROCEDURE, startLine, callLine, baseOrder));
+        for (int i = 0; i < args.size(); i++) {
+            String arg = args.get(i).trim();
+            int lineNo = findLineInRange(parsedStatement.slice(), arg, startLine, endLine);
+            String line = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+            collector.addDraft(lineDraft(parsedStatement, context, normalizeSourceToken(arg), TargetObjectType.PROCEDURE, callable,
+                    "$" + (i + 1), RelationshipType.CALL_PARAM_MAP, lineNo, line, baseOrder + 10 + i));
+        }
+    }
+
+    private static void extractFetchStatement(String statementText,
+                                              int startLine,
+                                              int endLine,
+                                              ParsedStatementResult parsedStatement,
+                                              ExtractionContext context,
+                                              RowCollector collector,
+                                              int baseOrder) {
+        String normalized = statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
+        Matcher fetch = Pattern.compile("(?is)^\\s*(?:[A-Z0-9_.$]+\\s*:\\s*)?(?:LOOP\\s+)?FETCH\\s+(?:NEXT\\s+FROM\\s+|FROM\\s+)?([A-Z0-9_.$]+)\\s+INTO\\s+(.+?)\\s*;?\\s*$").matcher(normalized);
+        if (!fetch.find()) {
+            return;
+        }
+        String cursor = fetch.group(1).trim();
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
+        int fetchLineNo = findLineInRange(parsedStatement.slice(), "FETCH " + cursor, startLine, endLine);
+        String fetchLine = parsedStatement.slice().sourceFile().getRawLine(fetchLineNo);
+        collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
+                RelationshipType.CURSOR_READ, fetchLineNo, fetchLine, baseOrder));
+        List<String> targets = splitArgs(fetch.group(2));
+        List<String> selectSources = resolveCursorSelectSources(cursor, parsedStatement);
+        for (int i = 0; i < targets.size(); i++) {
+            String sourceField = i < selectSources.size() ? selectSources.get(i) : cursor;
+            String target = targets.get(i).trim();
+            int lineNo = findLineInRange(parsedStatement.slice(), target, startLine, endLine);
+            String line = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+            collector.addDraft(lineDraft(parsedStatement, context, sourceField, TargetObjectType.VARIABLE, owningRoutine, target,
+                    RelationshipType.CURSOR_FETCH_MAP, lineNo, line, baseOrder + 10 + i));
+        }
+    }
+
+    private static int findLineInRange(StatementSlice slice, String token, int startLine, int endLine) {
+        String needle = token == null ? "" : token.trim().toUpperCase(Locale.ROOT);
+        if (needle.isEmpty()) {
+            return startLine;
+        }
+        for (int lineNo = startLine; lineNo <= endLine; lineNo++) {
+            String line = slice.sourceFile().getRawLine(lineNo).toUpperCase(Locale.ROOT);
+            if (line.contains(needle)) {
+                return lineNo;
+            }
+        }
+        return startLine;
     }
 
     static boolean isPlainVariableDeclaration(String text) {
@@ -147,7 +279,12 @@ final class RoutineLineageSupport {
             return false;
         }
 
+        boolean added = false;
         for (ExpressionTokenSupport.TokenUse tokenUse : tokens) {
+            String tokenLine = tokenUse.lineContent() == null ? "" : tokenUse.lineContent().trim();
+            if (tokenLine.toUpperCase(Locale.ROOT).startsWith("DECLARE")) {
+                continue;
+            }
             collector.addDraft(lineDraft(
                     parsedStatement,
                     context,
@@ -156,19 +293,20 @@ final class RoutineLineageSupport {
                     targetObject,
                     "",
                     RelationshipType.CONTROL_FLOW_CONDITION,
-                    tokenUse.lineNo(),
-                    tokenUse.lineContent(),
+                    lineNo,
+                    line,
                     baseNaturalOrder + tokenUse.orderOnLine()
             ));
+            added = true;
         }
-        return true;
+        return added;
     }
 
     @SafeVarargs
     private static String firstMatchedGroup(String line, Pattern... patterns) {
         for (Pattern pattern : patterns) {
             Matcher matcher = pattern.matcher(line);
-            if (matcher.find()) {
+            if (matcher.matches()) {
                 return matcher.group(1);
             }
         }
