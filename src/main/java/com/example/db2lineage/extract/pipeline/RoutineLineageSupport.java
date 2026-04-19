@@ -24,6 +24,7 @@ import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
 import net.sf.jsqlparser.statement.select.SetOperationList;
+import net.sf.jsqlparser.statement.select.Values;
 import net.sf.jsqlparser.statement.update.Update;
 import net.sf.jsqlparser.expression.BinaryExpression;
 import net.sf.jsqlparser.expression.CaseExpression;
@@ -553,16 +554,14 @@ final class RoutineLineageSupport {
                         mappingEndLine
                 );
             }
-        } else if (insert.getValues() != null && insert.getValues().getExpressions() != null && !targetColumns.isEmpty()) {
-            int mappingSlots = Math.min(targetColumns.size(), insert.getValues().getExpressions().size());
+        } else if (!targetColumns.isEmpty()) {
+            List<Expression> valuesExpressions = resolveInsertValuesExpressions(select);
+            int mappingSlots = Math.min(targetColumns.size(), valuesExpressions.size());
             List<Integer> valueLines = findInsertValueLines(parsedStatement.slice());
             final int usageBaseOrder = 0;
             final int mappingBaseOrder = 1;
             for (int i = 0; i < mappingSlots; i++) {
-                Object raw = insert.getValues().getExpressions().get(i);
-                if (!(raw instanceof Expression expression)) {
-                    continue;
-                }
+                Expression expression = valuesExpressions.get(i);
                 int valueLine = i < valueLines.size() ? valueLines.get(i) : -1;
                 addCompanionSelectExprRowsForInsertValues(
                         expression,
@@ -590,6 +589,23 @@ final class RoutineLineageSupport {
         if (select != null) {
             addFocusedRowsFromSelect(select, parsedStatement, context, collector);
         }
+    }
+
+    private static List<Expression> resolveInsertValuesExpressions(Select select) {
+        Select current = select;
+        while (current instanceof ParenthesedSelect parenthesedSelect) {
+            current = parenthesedSelect.getSelect();
+        }
+        if (current instanceof Values values && values.getExpressions() != null) {
+            List<Expression> expressions = new ArrayList<>();
+            for (Object raw : values.getExpressions()) {
+                if (raw instanceof Expression expression) {
+                    expressions.add(expression);
+                }
+            }
+            return expressions;
+        }
+        return List.of();
     }
 
     private static void addFocusedRowsFromPlainSelect(PlainSelect plainSelect,
