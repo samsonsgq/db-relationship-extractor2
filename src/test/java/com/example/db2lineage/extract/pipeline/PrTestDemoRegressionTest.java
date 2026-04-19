@@ -61,10 +61,10 @@ class PrTestDemoRegressionTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
                 && "CONSTANT:ROW_COUNT".equals(r.sourceField())
                 && "lv_row_count".equalsIgnoreCase(r.targetField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
                 && "CONSTANT:SQLCODE".equals(r.sourceField())
                 && "ln_sqlcode".equalsIgnoreCase(r.targetField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
                 && "CONSTANT:SQLSTATE".equals(r.sourceField())
                 && "lv_sqlstate".equalsIgnoreCase(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP

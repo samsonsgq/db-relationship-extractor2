@@ -12,7 +12,8 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
     public boolean supports(ParsedStatementResult parsedStatement) {
         return parsedStatement.parseFailed()
                 || parsedStatement.unsupported()
-                || parsedStatement.statement().isEmpty();
+                || parsedStatement.statement().isEmpty()
+                || isParsedButProceduralCandidate(parsedStatement);
     }
 
     @Override
@@ -87,5 +88,14 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
                 ObjectRelationshipSupport.UNKNOWN_UNSUPPORTED_STATEMENT,
                 0
         ));
+    }
+
+    private static boolean isParsedButProceduralCandidate(ParsedStatementResult parsedStatement) {
+        if (parsedStatement.statement().isEmpty()) {
+            return false;
+        }
+        String first = parsedStatement.slice().statementText().stripLeading().toUpperCase();
+        return first.startsWith("DECLARE ")
+                || first.startsWith("SET ");
     }
 }

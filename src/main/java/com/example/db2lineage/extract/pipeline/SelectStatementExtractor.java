@@ -2,12 +2,16 @@ package com.example.db2lineage.extract.pipeline;
 
 import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.extract.RowCollector;
+import com.example.db2lineage.model.ConfidenceLevel;
 import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.model.RowDraft;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.GroupByElement;
+import net.sf.jsqlparser.statement.select.FromItem;
 import net.sf.jsqlparser.statement.select.Join;
 import net.sf.jsqlparser.statement.select.OrderByElement;
 import net.sf.jsqlparser.statement.select.PlainSelect;
@@ -16,7 +20,10 @@ import net.sf.jsqlparser.statement.select.SelectItem;
 import net.sf.jsqlparser.statement.select.SetOperationList;
 
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 public final class SelectStatementExtractor implements StatementExtractor {
@@ -95,7 +102,7 @@ public final class SelectStatementExtractor implements StatementExtractor {
                     continue;
                 }
                 if (expression instanceof Column column) {
-                    ExpressionTokenSupport.addExpressionRows(RelationshipType.SELECT_FIELD, column, parsedStatement, context, collector, naturalOrder++);
+                    addSelectFieldRow(column, parsedStatement, context, collector, plainSelect, naturalOrder++);
                 } else {
                     ExpressionTokenSupport.addExpressionRows(RelationshipType.SELECT_EXPR, expression, parsedStatement, context, collector, naturalOrder++);
                 }
@@ -164,5 +171,82 @@ public final class SelectStatementExtractor implements StatementExtractor {
         }
 
         return naturalOrder;
+    }
+
+    private static void addSelectFieldRow(Column column,
+                                          ParsedStatementResult parsedStatement,
+                                          ExtractionContext context,
+                                          RowCollector collector,
+                                          PlainSelect plainSelect,
+                                          int naturalOrder) {
+        String sourceField = column.getColumnName();
+        String qualified = column.getFullyQualifiedName();
+        if (qualified != null && !qualified.isBlank() && qualified.contains(".")) {
+            sourceField = qualified;
+        } else if (sourceField == null || sourceField.isBlank()) {
+            sourceField = column.getFullyQualifiedName();
+        }
+        String qualifier = column.getTable() == null ? "" : column.getTable().getName();
+
+        TableOwner owner = resolveTableOwner(plainSelect, qualifier, context, sourceField);
+        LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), sourceField, naturalOrder);
+        collector.addDraft(new RowDraft(
+                ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                sourceField,
+                owner.targetType(),
+                owner.targetObject(),
+                column.getColumnName() == null ? sourceField : column.getColumnName(),
+                RelationshipType.SELECT_FIELD,
+                anchor.lineNo(),
+                anchor.lineContent(),
+                ConfidenceLevel.PARSER,
+                ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                naturalOrder
+        ));
+    }
+
+    private static TableOwner resolveTableOwner(PlainSelect plainSelect,
+                                                String qualifier,
+                                                ExtractionContext context,
+                                                String sourceField) {
+        Map<String, String> aliasToObject = new LinkedHashMap<>();
+        collectOwner(plainSelect.getFromItem(), aliasToObject);
+        if (plainSelect.getJoins() != null) {
+            for (Join join : plainSelect.getJoins()) {
+                collectOwner(join.getFromItem(), aliasToObject);
+            }
+        }
+        if (qualifier != null && !qualifier.isBlank()) {
+            String obj = aliasToObject.getOrDefault(qualifier.toUpperCase(Locale.ROOT), qualifier);
+            TargetObjectType t = context.schemaMetadataService().resolveObjectType(obj).orElse(TargetObjectType.TABLE);
+            return new TableOwner(t, obj);
+        }
+        if (aliasToObject.size() == 1) {
+            String obj = aliasToObject.values().iterator().next();
+            TargetObjectType t = context.schemaMetadataService().resolveObjectType(obj).orElse(TargetObjectType.TABLE);
+            return new TableOwner(t, obj);
+        }
+
+        return new TableOwner(TargetObjectType.UNKNOWN, ObjectRelationshipSupport.UNKNOWN_UNRESOLVED_OBJECT);
+    }
+
+    private static void collectOwner(FromItem fromItem, Map<String, String> aliasToObject) {
+        if (fromItem == null) {
+            return;
+        }
+        if (fromItem instanceof Table table) {
+            String name = table.getFullyQualifiedName();
+            if (name == null || name.isBlank()) {
+                return;
+            }
+            aliasToObject.put(name.toUpperCase(Locale.ROOT), name);
+            if (table.getAlias() != null && table.getAlias().getName() != null) {
+                aliasToObject.put(table.getAlias().getName().toUpperCase(Locale.ROOT), name);
+            }
+        }
+    }
+
+    private record TableOwner(TargetObjectType targetType, String targetObject) {
     }
 }
