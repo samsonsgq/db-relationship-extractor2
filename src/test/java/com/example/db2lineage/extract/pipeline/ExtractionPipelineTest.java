@@ -213,13 +213,47 @@ class ExtractionPipelineTest {
 
         List<RelationshipRow> rows = new ExtractionPipeline().extract(new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))), List.of(parsed));
 
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD && r.sourceField().equals("T.ID")));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
+                && r.sourceField().equals("T.ID")
+                && r.targetField().equals("ID")
+                && r.targetObject().equals("T1")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR && r.sourceField().equals("T.AMT")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR && r.sourceField().equals("CONSTANT:1")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.WHERE && r.sourceField().equals("CONSTANT:'Y'")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.JOIN_ON && r.sourceField().equals("X.ID")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.GROUP_BY && r.sourceField().equals("T.ID")));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.ORDER_BY && r.sourceField().equals("T.ID")));
+    }
+
+    @Test
+    void extractInsertSelectMappingUsesPositionalSlotsAndConciseCaseTokens() {
+        SqlSourceFile sourceFile = new SqlSourceFile(
+                SqlSourceCategory.SP_DIR,
+                Path.of("/tmp/insert_select_map.sql"),
+                Path.of("insert_select_map.sql"),
+                "INSERT INTO T_DST (A, B, C) SELECT SRC_A, COALESCE(SRC_B, ''), CASE WHEN FLAG='Y' THEN SRC_C ELSE 0 END FROM T_SRC;",
+                List.of("INSERT INTO T_DST (A, B, C) SELECT SRC_A, COALESCE(SRC_B, ''), CASE WHEN FLAG='Y' THEN SRC_C ELSE 0 END FROM T_SRC;")
+        );
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && "A".equals(r.targetField()) && "SRC_A".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && "B".equals(r.targetField()) && "SRC_B".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && "B".equals(r.targetField()) && "CONSTANT:''".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && "C".equals(r.targetField()) && "SRC_C".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && "C".equals(r.targetField()) && "CONSTANT:0".equals(r.sourceField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && "C".equals(r.targetField()) && "FLAG".equals(r.sourceField())));
     }
 
     @Test
@@ -388,6 +422,52 @@ class ExtractionPipelineTest {
     }
 
     @Test
+    void proceduralMultilineStatementsEmitSelectAndInsertTableRowsWithoutDuplicates() {
+        SqlSourceFile sourceFile = sqlFile("phase11_table_rows.sql", List.of(
+                "CREATE PROCEDURE P_TABLE_ROWS()",
+                "BEGIN",
+                "  -- insert from select",
+                "  INSERT INTO SESSION.T_TMP",
+                "  (ID)",
+                "  SELECT SRC.ID",
+                "    FROM T_SRC SRC;",
+                "  -- plain select",
+                "  SELECT A.COL1, A.COL2",
+                "    INTO V1, V2",
+                "    FROM T_A A;",
+                "END"
+        ), SqlSourceCategory.SP_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                sourceFile.getLineCount(),
+                sourceFile.rawLines(),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.INSERT_TABLE
+                        && "SESSION.T_TMP".equalsIgnoreCase(r.targetObject()))
+                .count() >= 1);
+        assertTrue(rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                        && "T_SRC".equalsIgnoreCase(r.targetObject()))
+                .count() >= 1);
+        assertTrue(rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                        && "T_A".equalsIgnoreCase(r.targetObject()))
+                .count() >= 1);
+    }
+
+    @Test
     void createProcedureExtractsNestedDmlWithExactBodyLineAnchors() {
         SqlSourceFile sourceFile = new SqlSourceFile(
                 SqlSourceCategory.SP_DIR,
@@ -468,8 +548,8 @@ class ExtractionPipelineTest {
                 && "PHASE10_FN".equals(r.targetObject())
                 && "V_OUT".equals(r.targetField())
                 && "FN_SCORE".equals(r.sourceField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$2".equals(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$1".equals(r.targetField().trim())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP && "P_LOG".equals(r.targetObject()) && "$2".equals(r.targetField().trim())));
     }
 
     @Test

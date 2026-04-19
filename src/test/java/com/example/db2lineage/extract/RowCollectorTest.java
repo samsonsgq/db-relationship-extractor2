@@ -41,6 +41,64 @@ class RowCollectorTest {
         assertEquals(0, secondGroup.lineRelationSeq());
     }
 
+
+    @Test
+    void finalizeRowsUsesBucketOrderBeforeNaturalOrderOnMixedRelationshipFamilies() {
+        RowCollector collector = new RowCollector();
+
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "SRC",
+                "",
+                TargetObjectType.TABLE,
+                "T1",
+                "",
+                RelationshipType.SELECT_TABLE,
+                20,
+                "SELECT C1 INTO V1 FROM T1",
+                ConfidenceLevel.PARSER,
+                0,
+                5
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "SRC",
+                "C1",
+                TargetObjectType.TABLE,
+                "T1",
+                "C1",
+                RelationshipType.SELECT_FIELD,
+                20,
+                "SELECT C1 INTO V1 FROM T1",
+                ConfidenceLevel.PARSER,
+                0,
+                1
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "SRC",
+                "C1",
+                TargetObjectType.VARIABLE,
+                "V1",
+                "V1",
+                RelationshipType.VARIABLE_SET_MAP,
+                20,
+                "SELECT C1 INTO V1 FROM T1",
+                ConfidenceLevel.PARSER,
+                0,
+                0
+        ));
+
+        List<RelationshipRow> rows = collector.finalizeRows();
+
+        assertEquals(RelationshipType.SELECT_TABLE, rows.get(0).relationship());
+        assertEquals(RelationshipType.SELECT_FIELD, rows.get(1).relationship());
+        assertEquals(RelationshipType.VARIABLE_SET_MAP, rows.get(2).relationship());
+        assertEquals(0, rows.get(0).lineRelationSeq());
+        assertEquals(1, rows.get(1).lineRelationSeq());
+        assertEquals(2, rows.get(2).lineRelationSeq());
+    }
+
     private static RowDraft draft(
             String sourceObject,
             String sourceField,

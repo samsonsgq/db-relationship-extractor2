@@ -17,16 +17,20 @@ import net.sf.jsqlparser.expression.JdbcNamedParameter;
 import net.sf.jsqlparser.expression.JdbcParameter;
 import net.sf.jsqlparser.expression.LongValue;
 import net.sf.jsqlparser.expression.NullValue;
+import net.sf.jsqlparser.expression.NextValExpression;
 import net.sf.jsqlparser.expression.NumericBind;
 import net.sf.jsqlparser.expression.StringValue;
 import net.sf.jsqlparser.expression.TimeKeyExpression;
 import net.sf.jsqlparser.expression.UserVariable;
 import net.sf.jsqlparser.schema.Column;
+import net.sf.jsqlparser.expression.operators.relational.IsNullExpression;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 final class ExpressionTokenSupport {
@@ -141,10 +145,29 @@ final class ExpressionTokenSupport {
                 rawTokens.add(numericBind.toString());
                 return null;
             }
+
+            @Override
+            public <S> Void visit(IsNullExpression isNullExpression, S context) {
+                if (isNullExpression.getLeftExpression() != null) {
+                    isNullExpression.getLeftExpression().accept(this, context);
+                }
+                rawTokens.add("CONSTANT:NULL");
+                return null;
+            }
+
+            @Override
+            public <S> Void visit(NextValExpression nextValExpression, S context) {
+                String name = nextValExpression.getName();
+                if (name != null && !name.isBlank()) {
+                    rawTokens.add("SEQUENCE:" + name);
+                }
+                return null;
+            }
         }, null);
 
         List<TokenUse> uses = new ArrayList<>();
         Set<String> seen = new HashSet<>();
+        Map<String, SearchCursor> tokenCursor = new HashMap<>();
         int fallbackOrder = 0;
         int boundedStart = Math.max(slice.startLine(), startLine);
         int boundedEnd = Math.min(slice.endLine(), endLine);
@@ -153,7 +176,9 @@ final class ExpressionTokenSupport {
             boundedEnd = slice.endLine();
         }
         for (String token : rawTokens) {
-            LineAnchorResolver.LineAnchor p = tokenInRange(slice, token, fallbackOrder, boundedStart, boundedEnd);
+            SearchCursor cursor = tokenCursor.get(token);
+            LineAnchorResolver.LineAnchor p = tokenInRange(slice, token, fallbackOrder, boundedStart, boundedEnd, cursor);
+            tokenCursor.put(token, new SearchCursor(p.lineNo(), Math.max(0, p.orderOnLine()) + 1));
             String dedupeKey = token + "|" + p.lineNo() + "|" + p.orderOnLine();
             if (seen.add(dedupeKey)) {
                 uses.add(new TokenUse(token, p.lineNo(), p.lineContent(), p.orderOnLine()));
@@ -167,13 +192,26 @@ final class ExpressionTokenSupport {
                                                               String token,
                                                               int fallbackOrderOnLine,
                                                               int startLine,
-                                                              int endLine) {
+                                                              int endLine,
+                                                              SearchCursor cursor) {
         String needle = searchableToken(token);
         if (needle.isBlank()) {
             return LineAnchorResolver.statementStart(slice, fallbackOrderOnLine);
         }
         String upperNeedle = needle.toUpperCase(Locale.ROOT);
-        for (int lineNo = startLine; lineNo <= endLine; lineNo++) {
+        int searchStartLine = cursor == null ? startLine : Math.max(startLine, cursor.lineNo());
+        for (int lineNo = searchStartLine; lineNo <= endLine; lineNo++) {
+            String line = slice.sourceFile().getRawLine(lineNo);
+            int fromIndex = 0;
+            if (cursor != null && lineNo == cursor.lineNo()) {
+                fromIndex = Math.max(0, Math.min(cursor.searchFrom(), line.length()));
+            }
+            int idx = line.toUpperCase(Locale.ROOT).indexOf(upperNeedle, fromIndex);
+            if (idx >= 0) {
+                return new LineAnchorResolver.LineAnchor(lineNo, line, idx, true);
+            }
+        }
+        for (int lineNo = startLine; lineNo < searchStartLine; lineNo++) {
             String line = slice.sourceFile().getRawLine(lineNo);
             int idx = line.toUpperCase(Locale.ROOT).indexOf(upperNeedle);
             if (idx >= 0) {
@@ -192,6 +230,9 @@ final class ExpressionTokenSupport {
         }
         if (token.startsWith("FUNCTION:")) {
             return token.substring("FUNCTION:".length());
+        }
+        if (token.startsWith("SEQUENCE:")) {
+            return token.substring("SEQUENCE:".length());
         }
         return token;
     }
@@ -221,5 +262,8 @@ final class ExpressionTokenSupport {
     }
 
     record TokenUse(String token, int lineNo, String lineContent, int orderOnLine) {
+    }
+
+    private record SearchCursor(int lineNo, int searchFrom) {
     }
 }
