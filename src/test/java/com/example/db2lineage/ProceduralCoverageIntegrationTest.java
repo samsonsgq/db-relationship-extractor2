@@ -421,6 +421,78 @@ class ProceduralCoverageIntegrationTest {
                 "Predicate/control-flow rows should avoid broad duplication across overlapping extraction paths");
     }
 
+    @Test
+    void coversProceduralInsertSelectAndValuesWithoutInsertShapeCrash() throws Exception {
+        Path root = Files.createTempDirectory("proc-insert-shape");
+        Path tableDir = Files.createDirectories(root.resolve("table"));
+        Path viewDir = Files.createDirectories(root.resolve("view"));
+        Path functionDir = Files.createDirectories(root.resolve("function"));
+        Path spDir = Files.createDirectories(root.resolve("sp"));
+        Path outputDir = Files.createDirectories(root.resolve("out"));
+
+        Path spFile = spDir.resolve("RPT.PR_INSERT_SHAPE_TEST.sql");
+        Files.writeString(spFile, """
+                CREATE PROCEDURE RPT.PR_INSERT_SHAPE_TEST()
+                LANGUAGE SQL
+                BEGIN
+                    DECLARE v_a INTEGER DEFAULT 1;
+                    DECLARE v_b INTEGER DEFAULT 2;
+
+                    DECLARE GLOBAL TEMPORARY TABLE SESSION.T_TMP
+                    (
+                        C1 INTEGER,
+                        C2 INTEGER
+                    )
+                    WITH REPLACE
+                    ON COMMIT PRESERVE ROWS
+                    NOT LOGGED;
+
+                    INSERT INTO SESSION.T_TMP (C1, C2)
+                    SELECT v_a, v_b
+                      FROM SYSIBM.SYSDUMMY1;
+
+                    INSERT INTO SESSION.T_TMP (C1, C2)
+                    VALUES (v_b, 99);
+                END
+                @
+                """, StandardCharsets.UTF_8);
+
+        RelationshipDetailMain.main(new String[]{
+                "--tableDir", tableDir.toString(),
+                "--viewDir", viewDir.toString(),
+                "--functionDir", functionDir.toString(),
+                "--spDir", spDir.toString(),
+                "--outputDir", outputDir.toString()
+        });
+
+        List<Map<String, String>> rows = readRows(outputDir.resolve("relationship_detail.tsv"));
+        Predicate<Map<String, String>> inProcedure = row ->
+                "PROCEDURE".equals(row.get("source_object_type"))
+                        && "RPT.PR_INSERT_SHAPE_TEST".equals(row.get("source_object"));
+
+        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+                        "INSERT_SELECT_MAP".equals(row.get("relationship"))
+                                && "C1".equalsIgnoreCase(row.get("target_field"))
+                                && "v_a".equalsIgnoreCase(row.get("source_field")))),
+                "INSERT ... SELECT should still emit INSERT_SELECT_MAP for slot 1");
+        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+                        "INSERT_SELECT_MAP".equals(row.get("relationship"))
+                                && "C2".equalsIgnoreCase(row.get("target_field"))
+                                && "v_b".equalsIgnoreCase(row.get("source_field")))),
+                "INSERT ... SELECT should still emit INSERT_SELECT_MAP for slot 2");
+
+        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+                        "INSERT_SELECT_MAP".equals(row.get("relationship"))
+                                && "C1".equalsIgnoreCase(row.get("target_field"))
+                                && "v_b".equalsIgnoreCase(row.get("source_field")))),
+                "INSERT ... VALUES should emit INSERT_SELECT_MAP for variable value");
+        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+                        "INSERT_SELECT_MAP".equals(row.get("relationship"))
+                                && "C2".equalsIgnoreCase(row.get("target_field"))
+                                && "CONSTANT:99".equals(row.get("source_field")))),
+                "INSERT ... VALUES should emit INSERT_SELECT_MAP for literal value");
+    }
+
     private static List<Map<String, String>> readRows(Path tsvPath) throws IOException {
         List<String> lines = Files.readAllLines(tsvPath, StandardCharsets.UTF_8);
         if (lines.isEmpty()) {
