@@ -11,6 +11,8 @@ import com.example.db2lineage.parse.StatementSlice;
 import net.sf.jsqlparser.expression.CaseExpression;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.NextValExpression;
+import net.sf.jsqlparser.expression.TimeKeyExpression;
 import net.sf.jsqlparser.expression.WhenClause;
 import net.sf.jsqlparser.schema.Column;
 
@@ -86,7 +88,8 @@ final class MappingRelationshipSupport {
                                       int endLine) {
         List<ExpressionTokenSupport.TokenUse> tokens = conciseMappingTokens(expression, parsedStatement.slice(), mappingRelationship, startLine, endLine);
         for (ExpressionTokenSupport.TokenUse tokenUse : tokens) {
-            String sourceToken = normalizeMappingSourceToken(mappingRelationship, tokenUse.token(), parsedStatement);
+            RelationshipType effectiveRelationship = strongestDirectMappingRelationship(mappingRelationship, expression, tokenUse.token());
+            String sourceToken = normalizeMappingSourceToken(effectiveRelationship, tokenUse.token(), parsedStatement);
             collector.addDraft(new RowDraft(
                     ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
                     ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
@@ -94,7 +97,7 @@ final class MappingRelationshipSupport {
                     targetType,
                     ObjectRelationshipSupport.normalizeObjectName(targetObject),
                     targetField,
-                    mappingRelationship,
+                    effectiveRelationship,
                     tokenUse.lineNo(),
                     tokenUse.lineContent(),
                     ConfidenceLevel.PARSER,
@@ -103,6 +106,50 @@ final class MappingRelationshipSupport {
             ));
         }
         addFunctionExpressionRows(targetObject, targetType, targetField, expression, parsedStatement, context, collector, naturalOrder + 10_000);
+    }
+
+    private static RelationshipType strongestDirectMappingRelationship(RelationshipType mappingRelationship,
+                                                                      Expression expression,
+                                                                      String sourceToken) {
+        if (mappingRelationship != RelationshipType.INSERT_SELECT_MAP
+                && mappingRelationship != RelationshipType.UPDATE_SET_MAP
+                && mappingRelationship != RelationshipType.MERGE_SET_MAP
+                && mappingRelationship != RelationshipType.MERGE_INSERT_MAP
+                && mappingRelationship != RelationshipType.VARIABLE_SET_MAP) {
+            return mappingRelationship;
+        }
+        if (isDirectSequenceExpression(expression) && sourceToken != null && sourceToken.startsWith("SEQUENCE:")) {
+            return RelationshipType.SEQUENCE_VALUE_MAP;
+        }
+        if (isDirectSpecialRegisterExpression(expression) && sourceToken != null && sourceToken.startsWith("CONSTANT:")) {
+            return RelationshipType.SPECIAL_REGISTER_MAP;
+        }
+        return mappingRelationship;
+    }
+
+    private static boolean isDirectSequenceExpression(Expression expression) {
+        return expression instanceof NextValExpression;
+    }
+
+    private static boolean isDirectSpecialRegisterExpression(Expression expression) {
+        if (expression instanceof TimeKeyExpression) {
+            return true;
+        }
+        if (expression instanceof Column column) {
+            String name = column.getFullyQualifiedName();
+            if (name == null || name.contains(".")) {
+                return false;
+            }
+            String normalized = name.toUpperCase(Locale.ROOT).replace('_', ' ').trim();
+            return normalized.equals("CURRENT DATE")
+                    || normalized.equals("CURRENT TIME")
+                    || normalized.equals("CURRENT TIMESTAMP")
+                    || normalized.equals("CURRENT USER")
+                    || normalized.equals("SESSION USER")
+                    || normalized.equals("SYSTEM USER")
+                    || normalized.equals("USER");
+        }
+        return false;
     }
 
     static List<ExpressionTokenSupport.TokenUse> conciseMappingTokens(Expression expression, StatementSlice slice) {

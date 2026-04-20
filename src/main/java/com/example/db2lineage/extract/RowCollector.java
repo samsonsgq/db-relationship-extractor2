@@ -158,8 +158,9 @@ public final class RowCollector {
             case CALL_PARAM_MAP -> 61;
             case TABLE_FUNCTION_RETURN_MAP -> 62;
             case SPECIAL_REGISTER_MAP -> 63;
-            case DIAGNOSTICS_FETCH_MAP -> 64;
-            case FUNCTION_EXPR_MAP -> 65;
+            case SEQUENCE_VALUE_MAP -> 64;
+            case DIAGNOSTICS_FETCH_MAP -> 65;
+            case FUNCTION_EXPR_MAP -> 66;
         };
     }
 

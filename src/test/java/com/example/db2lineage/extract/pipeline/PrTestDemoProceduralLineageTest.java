@@ -519,7 +519,11 @@ class PrTestDemoProceduralLineageTest {
                 && r.lineNo() == 403
                 && "ld_biz_date".equalsIgnoreCase(r.sourceField())
                 && "AS_OF_DATE".equalsIgnoreCase(r.targetField())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SEQUENCE_VALUE_MAP
+                && r.lineNo() == 407
+                && "SEQUENCE:RPT.GLOBAL_SEQ_ACCOUNT_EVENT_UNIQUE_ID".equalsIgnoreCase(r.sourceField())
+                && "SEQUENCE_NUMBER".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
                 && r.lineNo() == 407
                 && "SEQUENCE:RPT.GLOBAL_SEQ_ACCOUNT_EVENT_UNIQUE_ID".equalsIgnoreCase(r.sourceField())
                 && "SEQUENCE_NUMBER".equalsIgnoreCase(r.targetField())));
