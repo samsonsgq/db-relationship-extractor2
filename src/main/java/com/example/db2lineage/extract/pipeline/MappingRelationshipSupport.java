@@ -20,9 +20,25 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 
 final class MappingRelationshipSupport {
+    private static final Map<String, String> SPECIAL_REGISTER_CANONICAL = Map.ofEntries(
+            Map.entry("CURRENT DATE", "CURRENT DATE"),
+            Map.entry("CURRENT_TIME", "CURRENT TIME"),
+            Map.entry("CURRENT TIME", "CURRENT TIME"),
+            Map.entry("CURRENT_TIMESTAMP", "CURRENT TIMESTAMP"),
+            Map.entry("CURRENT TIMESTAMP", "CURRENT TIMESTAMP"),
+            Map.entry("CURRENT_USER", "CURRENT USER"),
+            Map.entry("CURRENT USER", "CURRENT USER"),
+            Map.entry("SESSION_USER", "SESSION USER"),
+            Map.entry("SESSION USER", "SESSION USER"),
+            Map.entry("SYSTEM_USER", "SYSTEM USER"),
+            Map.entry("SYSTEM USER", "SYSTEM USER"),
+            Map.entry("USER", "USER")
+    );
+
     private MappingRelationshipSupport() {
     }
 
@@ -132,24 +148,7 @@ final class MappingRelationshipSupport {
     }
 
     private static boolean isDirectSpecialRegisterExpression(Expression expression) {
-        if (expression instanceof TimeKeyExpression) {
-            return true;
-        }
-        if (expression instanceof Column column) {
-            String name = column.getFullyQualifiedName();
-            if (name == null || name.contains(".")) {
-                return false;
-            }
-            String normalized = name.toUpperCase(Locale.ROOT).replace('_', ' ').trim();
-            return normalized.equals("CURRENT DATE")
-                    || normalized.equals("CURRENT TIME")
-                    || normalized.equals("CURRENT TIMESTAMP")
-                    || normalized.equals("CURRENT USER")
-                    || normalized.equals("SESSION USER")
-                    || normalized.equals("SYSTEM USER")
-                    || normalized.equals("USER");
-        }
-        return false;
+        return directSpecialRegisterToken(expression) != null;
     }
 
     static List<ExpressionTokenSupport.TokenUse> conciseMappingTokens(Expression expression, StatementSlice slice) {
@@ -167,6 +166,16 @@ final class MappingRelationshipSupport {
                                                                       int endLine) {
         if (expression == null) {
             return List.of();
+        }
+        String directSpecialRegister = directSpecialRegisterToken(expression);
+        if (directSpecialRegister != null) {
+            TokenPosition anchor = locateToken(slice, directSpecialRegister, 0);
+            return List.of(new ExpressionTokenSupport.TokenUse(
+                    "CONSTANT:" + directSpecialRegister,
+                    anchor.lineNo(),
+                    anchor.lineContent(),
+                    anchor.orderOnLine()
+            ));
         }
         if (expression instanceof CaseExpression caseExpression) {
             return fromCaseExpression(caseExpression, slice, startLine, endLine);
@@ -191,6 +200,40 @@ final class MappingRelationshipSupport {
             }
         }
         return List.copyOf(filtered);
+    }
+
+    private static String directSpecialRegisterToken(Expression expression) {
+        if (expression instanceof TimeKeyExpression timeKeyExpression) {
+            return normalizeSpecialRegisterName(timeKeyExpression.getStringValue());
+        }
+        if (expression instanceof Column column) {
+            String name = column.getFullyQualifiedName();
+            if (name == null || name.contains(".")) {
+                return null;
+            }
+            return normalizeSpecialRegisterName(name);
+        }
+        if (expression instanceof Function function) {
+            if (function.getParameters() != null
+                    && function.getParameters().getExpressions() != null
+                    && !function.getParameters().getExpressions().isEmpty()) {
+                return null;
+            }
+            return normalizeSpecialRegisterName(function.getName());
+        }
+        return null;
+    }
+
+    private static String normalizeSpecialRegisterName(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String normalized = raw.toUpperCase(Locale.ROOT).trim().replaceAll("\\s+", " ");
+        String underscoreForm = normalized.replace(' ', '_');
+        if (SPECIAL_REGISTER_CANONICAL.containsKey(underscoreForm)) {
+            return SPECIAL_REGISTER_CANONICAL.get(underscoreForm);
+        }
+        return SPECIAL_REGISTER_CANONICAL.get(normalized);
     }
 
     private static List<ExpressionTokenSupport.TokenUse> fromCaseExpression(CaseExpression caseExpression,
