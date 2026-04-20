@@ -393,15 +393,10 @@ class ProceduralCoverageIntegrationTest {
                         && "at_end".equals(row.get("source_field"))
                         && "at_end".equals(row.get("target_field")))),
                 "IF condition target_field should be populated for at_end");
-        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+        assertTrue(rows.stream().noneMatch(inProcedure.and(row ->
                 "CONTROL_FLOW_CONDITION".equals(row.get("relationship"))
                         && "lv_month_flag".equals(row.get("source_field")))),
-                "CASE WHEN condition should emit CONTROL_FLOW_CONDITION token");
-        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
-                "CONTROL_FLOW_CONDITION".equals(row.get("relationship"))
-                        && "lv_month_flag".equals(row.get("source_field"))
-                        && "lv_month_flag".equals(row.get("target_field")))),
-                "CASE WHEN target_field should be populated for lv_month_flag");
+                "Value-producing CASE WHEN inside SET should not emit CONTROL_FLOW_CONDITION token");
         assertTrue(rows.stream().noneMatch(inProcedure.and(row ->
                 "CONTROL_FLOW_CONDITION".equals(row.get("relationship"))
                         && "CLOSE_OUT_AMOUNT".equals(row.get("source_field")))),

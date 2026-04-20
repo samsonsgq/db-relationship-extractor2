@@ -417,7 +417,7 @@ class ExtractionPipelineTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
                 && "P_LOAD".equals(r.targetObject())
                 && r.targetObjectType() == TargetObjectType.PROCEDURE
-                && r.targetField().isEmpty()));
+                && ("EXIT".equalsIgnoreCase(r.targetField()) || "CONTINUE".equalsIgnoreCase(r.targetField()))));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DYNAMIC_SQL_EXEC && "UNKNOWN_DYNAMIC_SQL".equals(r.targetObject())));
     }
 

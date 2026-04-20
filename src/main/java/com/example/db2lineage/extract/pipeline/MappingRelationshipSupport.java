@@ -11,6 +11,7 @@ import com.example.db2lineage.parse.StatementSlice;
 import net.sf.jsqlparser.expression.CaseExpression;
 import net.sf.jsqlparser.expression.Expression;
 import net.sf.jsqlparser.expression.Function;
+import net.sf.jsqlparser.expression.NextValExpression;
 import net.sf.jsqlparser.expression.WhenClause;
 import net.sf.jsqlparser.schema.Column;
 
@@ -84,6 +85,34 @@ final class MappingRelationshipSupport {
                                       int naturalOrder,
                                       int startLine,
                                       int endLine) {
+        if (expression instanceof NextValExpression) {
+            addDirectStrongestMappingRow(
+                    RelationshipType.SEQUENCE_VALUE_MAP,
+                    targetObject,
+                    targetType,
+                    targetField,
+                    expression,
+                    parsedStatement,
+                    context,
+                    collector,
+                    naturalOrder
+            );
+            return;
+        }
+        if (isSpecialRegisterExpression(expression)) {
+            addDirectStrongestMappingRow(
+                    RelationshipType.SPECIAL_REGISTER_MAP,
+                    targetObject,
+                    targetType,
+                    targetField,
+                    expression,
+                    parsedStatement,
+                    context,
+                    collector,
+                    naturalOrder
+            );
+            return;
+        }
         List<ExpressionTokenSupport.TokenUse> tokens = conciseMappingTokens(expression, parsedStatement.slice(), mappingRelationship, startLine, endLine);
         for (ExpressionTokenSupport.TokenUse tokenUse : tokens) {
             String sourceToken = normalizeMappingSourceToken(mappingRelationship, tokenUse.token(), parsedStatement);
@@ -103,6 +132,37 @@ final class MappingRelationshipSupport {
             ));
         }
         addFunctionExpressionRows(targetObject, targetType, targetField, expression, parsedStatement, context, collector, naturalOrder + 10_000);
+    }
+
+    private static void addDirectStrongestMappingRow(RelationshipType strongestRelationship,
+                                                     String targetObject,
+                                                     TargetObjectType targetType,
+                                                     String targetField,
+                                                     Expression expression,
+                                                     ParsedStatementResult parsedStatement,
+                                                     ExtractionContext context,
+                                                     RowCollector collector,
+                                                     int naturalOrder) {
+        List<ExpressionTokenSupport.TokenUse> tokens = ExpressionTokenSupport.collect(expression, parsedStatement.slice());
+        if (tokens.isEmpty()) {
+            return;
+        }
+        ExpressionTokenSupport.TokenUse tokenUse = tokens.get(0);
+        String sourceToken = normalizeMappingSourceToken(strongestRelationship, tokenUse.token(), parsedStatement);
+        collector.addDraft(new RowDraft(
+                ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                sourceToken,
+                targetType,
+                ObjectRelationshipSupport.normalizeObjectName(targetObject),
+                targetField,
+                strongestRelationship,
+                tokenUse.lineNo(),
+                tokenUse.lineContent(),
+                ConfidenceLevel.PARSER,
+                ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                naturalOrder + tokenUse.orderOnLine()
+        ));
     }
 
     static List<ExpressionTokenSupport.TokenUse> conciseMappingTokens(Expression expression, StatementSlice slice) {
@@ -247,35 +307,26 @@ final class MappingRelationshipSupport {
         if (expression == null) {
             return;
         }
-        Set<String> functions = new LinkedHashSet<>();
-        expression.accept(new net.sf.jsqlparser.expression.ExpressionVisitorAdapter<Void>() {
-            @Override
-            public <S> Void visit(Function function, S context1) {
-                if (function.getName() != null && !function.getName().isBlank()) {
-                    functions.add(function.getName());
-                }
-                return super.visit(function, context1);
-            }
-        }, null);
-        int i = 0;
-        for (String function : functions) {
-            TokenPosition position = locateToken(parsedStatement.slice(), function, naturalOrder + i);
-            collector.addDraft(new RowDraft(
-                    ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
-                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                    function.toUpperCase(Locale.ROOT),
-                    targetType,
-                    ObjectRelationshipSupport.normalizeObjectName(targetObject),
-                    targetField,
-                    RelationshipType.FUNCTION_EXPR_MAP,
-                    position.lineNo(),
-                    position.lineContent(),
-                    ConfidenceLevel.PARSER,
-                    ObjectRelationshipSupport.statementOrder(context, parsedStatement),
-                    naturalOrder + i
-            ));
-            i++;
+        if (!(expression instanceof Function function)
+                || function.getName() == null
+                || function.getName().isBlank()) {
+            return;
         }
+        TokenPosition position = locateToken(parsedStatement.slice(), function.getName(), naturalOrder);
+        collector.addDraft(new RowDraft(
+                ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                function.getName().toUpperCase(Locale.ROOT),
+                targetType,
+                ObjectRelationshipSupport.normalizeObjectName(targetObject),
+                targetField,
+                RelationshipType.FUNCTION_EXPR_MAP,
+                position.lineNo(),
+                position.lineContent(),
+                ConfidenceLevel.PARSER,
+                ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                naturalOrder
+        ));
     }
 
     static TokenPosition locateToken(StatementSlice slice, String token, int fallbackOrder) {
@@ -314,6 +365,19 @@ final class MappingRelationshipSupport {
             }
         }, null);
         return found[0];
+    }
+
+    private static boolean isSpecialRegisterExpression(Expression expression) {
+        if (expression == null) {
+            return false;
+        }
+        String normalized = expression.toString().trim().toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
+        return "CURRENT TIMESTAMP".equals(normalized)
+                || "CURRENT DATE".equals(normalized)
+                || "CURRENT TIME".equals(normalized)
+                || "CURRENT USER".equals(normalized)
+                || "USER".equals(normalized)
+                || "SESSION_USER".equals(normalized);
     }
 
     record TokenPosition(int lineNo, String lineContent, int orderOnLine) {
