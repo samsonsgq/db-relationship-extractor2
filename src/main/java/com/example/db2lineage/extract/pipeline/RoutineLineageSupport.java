@@ -16,8 +16,6 @@ import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.statement.Statement;
 import net.sf.jsqlparser.statement.delete.Delete;
 import net.sf.jsqlparser.statement.merge.Merge;
-import net.sf.jsqlparser.statement.merge.MergeInsert;
-import net.sf.jsqlparser.statement.merge.MergeUpdate;
 import net.sf.jsqlparser.statement.insert.Insert;
 import net.sf.jsqlparser.statement.select.FromItem;
 import net.sf.jsqlparser.statement.select.Join;
@@ -69,7 +67,7 @@ final class RoutineLineageSupport {
     private static final Pattern GET_DIAGNOSTICS_PATTERN = Pattern.compile("(?i)^\\s*GET\\s+DIAGNOSTICS\\s+(?:(?:EXCEPTION|CONDITION)\\s+\\d+\\s+)?([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$]+)\\s*;?\\s*$");
     private static final Pattern DIAGNOSTIC_TOKEN_ASSIGNMENT = Pattern.compile("(?i)^\\s*SET\\s+([A-Z0-9_.$]+)\\s*=\\s*(SQLSTATE|SQLCODE)\\s*;?\\s*$");
     private static final Pattern SPECIAL_REGISTER_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*(CURRENT\\s+DATE|CURRENT\\s+TIMESTAMP|CURRENT\\s+USER|USER)\\s*;?\\s*$");
-    private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+(.+?)\\s*$");
+    private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+(.+?)\\s*$");
     private static final Pattern DECLARE_GLOBAL_TEMPORARY_TABLE = Pattern.compile("(?i)^\\s*DECLARE\\s+GLOBAL\\s+TEMPORARY\\s+TABLE\\s+([A-Z0-9_.$\\\"]+).*");
     private static final Pattern DECLARE_VARIABLE_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+[A-Z0-9_.$]+\\s+.+$");
     private static final Pattern DECLARE_VARIABLE_WITH_OPTIONAL_DEFAULT =
@@ -193,7 +191,6 @@ final class RoutineLineageSupport {
                         statementStart,
                         statementEnd
                 );
-                extractSelectIntoStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 800);
                 extractCallStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 1000);
                 extractFetchStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 2000);
                 extractTableLevelRowsFromProceduralStatement(
@@ -382,7 +379,6 @@ final class RoutineLineageSupport {
             return;
         }
         if (statement instanceof Update update) {
-            addFocusedRowsFromUpdate(update, nestedParsed, context, collector);
             addFocusedExpressionRows(RelationshipType.WHERE, update.getWhere(), nestedParsed, context, collector, "WHERE");
             OwnershipResolution updateResolution = buildOwnershipResolution(update, context, ObjectRelationshipSupport.sourceObjectName(nestedParsed.slice()));
             if (update.getExpressions() != null) {
@@ -408,7 +404,6 @@ final class RoutineLineageSupport {
             return;
         }
         if (statement instanceof Merge merge) {
-            addFocusedRowsFromMerge(merge, nestedParsed, context, collector);
             addFocusedExpressionRows(RelationshipType.MERGE_MATCH, merge.getOnCondition(), nestedParsed, context, collector, " ON ");
             OwnershipResolution mergeResolution = buildOwnershipResolution(merge, context, ObjectRelationshipSupport.sourceObjectName(nestedParsed.slice()));
             addFocusedWhereRowsFromMergeSource(merge, nestedParsed, context, collector, mergeResolution);
@@ -593,143 +588,6 @@ final class RoutineLineageSupport {
         }
         if (select != null) {
             addFocusedRowsFromSelect(select, parsedStatement, context, collector);
-        }
-    }
-
-    private static void addFocusedRowsFromUpdate(Update update,
-                                                 ParsedStatementResult parsedStatement,
-                                                 ExtractionContext context,
-                                                 RowCollector collector) {
-        if (update == null || update.getTable() == null) {
-            return;
-        }
-        String targetName = update.getTable().getFullyQualifiedName();
-        TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, targetName, TargetObjectType.TABLE);
-        int updateLine = findLineInRange(parsedStatement.slice(), "UPDATE", parsedStatement.slice().startLine(), parsedStatement.slice().endLine());
-        addTableLevelDraftIfAbsent(collector, lineDraft(
-                parsedStatement, context, "", targetType, targetName, "",
-                RelationshipType.UPDATE_TABLE, updateLine, parsedStatement.slice().sourceFile().getRawLine(updateLine), 0
-        ));
-
-        if (update.getUpdateSets() == null) {
-            return;
-        }
-        int natural = 1;
-        for (var set : update.getUpdateSets()) {
-            if (set.getColumns() == null || set.getColumns().isEmpty()) {
-                continue;
-            }
-            for (Column column : set.getColumns()) {
-                MappingRelationshipSupport.addTargetColumnRow(
-                        RelationshipType.UPDATE_TARGET_COL, targetName, targetType, column.getColumnName(),
-                        parsedStatement, context, collector, natural++
-                );
-            }
-            if (set.getValues() == null || set.getValues().isEmpty()) {
-                continue;
-            }
-            if (set.getValues().size() == 1 && set.getColumns().size() > 1) {
-                Object value = set.getValues().get(0);
-                Select nested = null;
-                if (value instanceof ParenthesedSelect parenthesedSelect) {
-                    nested = parenthesedSelect.getSelect();
-                } else if (value instanceof Select select) {
-                    nested = select;
-                }
-                if (nested != null && nested.getPlainSelect() != null) {
-                    List<SelectItem<?>> items = nested.getPlainSelect().getSelectItems();
-                    int slots = Math.min(items.size(), set.getColumns().size());
-                    for (int i = 0; i < slots; i++) {
-                        Expression expr = items.get(i).getExpression();
-                        if (expr == null) {
-                            continue;
-                        }
-                        ExpressionTokenSupport.addExpressionRows(RelationshipType.UPDATE_SET, expr, parsedStatement, context, collector, natural++);
-                        MappingRelationshipSupport.addConciseMappingRows(
-                                RelationshipType.UPDATE_SET_MAP, targetName, targetType, set.getColumns().get(i).getColumnName(),
-                                expr, parsedStatement, context, collector, natural++
-                        );
-                    }
-                    continue;
-                }
-            }
-            int slots = Math.min(set.getColumns().size(), set.getValues().size());
-            for (int i = 0; i < slots; i++) {
-                Object value = set.getValues().get(i);
-                if (!(value instanceof Expression expression)) {
-                    continue;
-                }
-                ExpressionTokenSupport.addExpressionRows(RelationshipType.UPDATE_SET, expression, parsedStatement, context, collector, natural++);
-                MappingRelationshipSupport.addConciseMappingRows(
-                        RelationshipType.UPDATE_SET_MAP, targetName, targetType, set.getColumns().get(i).getColumnName(),
-                        expression, parsedStatement, context, collector, natural++
-                );
-            }
-        }
-    }
-
-    private static void addFocusedRowsFromMerge(Merge merge,
-                                                ParsedStatementResult parsedStatement,
-                                                ExtractionContext context,
-                                                RowCollector collector) {
-        if (merge == null || merge.getTable() == null) {
-            return;
-        }
-        String targetName = merge.getTable().getFullyQualifiedName();
-        TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, targetName, TargetObjectType.TABLE);
-        int mergeLine = findLineInRange(parsedStatement.slice(), "MERGE INTO", parsedStatement.slice().startLine(), parsedStatement.slice().endLine());
-        addTableLevelDraftIfAbsent(collector, lineDraft(
-                parsedStatement, context, "", targetType, targetName, "",
-                RelationshipType.MERGE_INTO, mergeLine, parsedStatement.slice().sourceFile().getRawLine(mergeLine), 0
-        ));
-
-        int natural = 1;
-        MergeUpdate mergeUpdate = merge.getMergeUpdate();
-        if (mergeUpdate != null && mergeUpdate.getUpdateSets() != null) {
-            for (var set : mergeUpdate.getUpdateSets()) {
-                if (set.getColumns() == null) {
-                    continue;
-                }
-                for (Column column : set.getColumns()) {
-                    MappingRelationshipSupport.addTargetColumnRow(
-                            RelationshipType.MERGE_TARGET_COL, targetName, targetType, column.getColumnName(),
-                            parsedStatement, context, collector, natural++
-                    );
-                }
-                if (set.getValues() == null) {
-                    continue;
-                }
-                int slots = Math.min(set.getColumns().size(), set.getValues().size());
-                for (int i = 0; i < slots; i++) {
-                    Object value = set.getValues().get(i);
-                    if (!(value instanceof Expression expression)) {
-                        continue;
-                    }
-                    MappingRelationshipSupport.addConciseMappingRows(
-                            RelationshipType.MERGE_SET_MAP, targetName, targetType, set.getColumns().get(i).getColumnName(),
-                            expression, parsedStatement, context, collector, natural++
-                    );
-                }
-            }
-        }
-
-        MergeInsert mergeInsert = merge.getMergeInsert();
-        if (mergeInsert != null && mergeInsert.getColumns() != null && mergeInsert.getValues() != null) {
-            int slots = Math.min(mergeInsert.getColumns().size(), mergeInsert.getValues().size());
-            for (int i = 0; i < slots; i++) {
-                Column targetColumn = mergeInsert.getColumns().get(i);
-                MappingRelationshipSupport.addTargetColumnRow(
-                        RelationshipType.MERGE_TARGET_COL, targetName, targetType, targetColumn.getColumnName(),
-                        parsedStatement, context, collector, natural++
-                );
-                Object value = mergeInsert.getValues().get(i);
-                if (value instanceof Expression expression) {
-                    MappingRelationshipSupport.addConciseMappingRows(
-                            RelationshipType.MERGE_INSERT_MAP, targetName, targetType, targetColumn.getColumnName(),
-                            expression, parsedStatement, context, collector, natural++
-                    );
-                }
-            }
         }
     }
 
@@ -1048,9 +906,6 @@ final class RoutineLineageSupport {
         if (expression instanceof Column column) {
             String full = column.getFullyQualifiedName();
             String source = column.getColumnName();
-            if (full != null && !full.isBlank() && full.contains(".")) {
-                source = full;
-            }
             String qualifier = column.getTable() == null ? "" : column.getTable().getName();
             if (qualifier != null && !qualifier.isBlank()) {
                 TableOwner owner = resolution.aliasOwners().get(qualifier.toUpperCase(Locale.ROOT));
@@ -1255,56 +1110,6 @@ final class RoutineLineageSupport {
         return new SqlStatementParser().parse(nestedSlice);
     }
 
-    private static boolean extractSelectIntoStatement(String statementText,
-                                                      int startLine,
-                                                      int endLine,
-                                                      ParsedStatementResult parsedStatement,
-                                                      ExtractionContext context,
-                                                      RowCollector collector,
-                                                      int baseOrder) {
-        String normalized = statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
-        Matcher selectInto = Pattern.compile("(?is)^\\s*SELECT\\s+(.+?)\\s+INTO\\s+(.+?)\\s+FROM\\s+.+$").matcher(normalized);
-        if (!selectInto.find()) {
-            return false;
-        }
-        List<String> selectItems = splitArgs(selectInto.group(1));
-        List<String> targets = splitArgs(selectInto.group(2));
-        int slots = Math.min(selectItems.size(), targets.size());
-        for (int i = 0; i < slots; i++) {
-            String exprText = selectItems.get(i).trim();
-            String target = targets.get(i).trim();
-            int targetLine = findLineInRange(parsedStatement.slice(), target, startLine, endLine);
-            String line = parsedStatement.slice().sourceFile().getRawLine(targetLine);
-            String sourceToken;
-            try {
-                Expression expression = CCJSqlParserUtil.parseExpression(exprText);
-                List<ExpressionTokenSupport.TokenUse> tokens = MappingRelationshipSupport.conciseMappingTokens(
-                        expression, parsedStatement.slice(), RelationshipType.VARIABLE_SET_MAP, startLine, endLine
-                );
-                if (!tokens.isEmpty()) {
-                    sourceToken = tokens.get(0).token();
-                } else {
-                    sourceToken = normalizeSourceToken(exprText);
-                }
-            } catch (JSQLParserException ignored) {
-                sourceToken = normalizeSourceToken(exprText);
-            }
-            collector.addDraft(lineDraft(
-                    parsedStatement,
-                    context,
-                    sourceToken,
-                    TargetObjectType.VARIABLE,
-                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                    target,
-                    RelationshipType.VARIABLE_SET_MAP,
-                    targetLine,
-                    line,
-                    baseOrder + i
-            ));
-        }
-        return slots > 0;
-    }
-
     private static boolean extractCallStatement(String statementText,
                                                 int startLine,
                                                 int endLine,
@@ -1431,13 +1236,14 @@ final class RoutineLineageSupport {
                                                        RowCollector collector,
                                                        int baseNaturalOrder) {
         String condition = firstMatchedGroup(line, IF_CONDITION_PATTERN, WHILE_CONDITION_PATTERN, UNTIL_CONDITION_PATTERN);
-        if ((condition == null || condition.isBlank())
-                && line != null
-                && line.trim().toUpperCase(Locale.ROOT).startsWith("WHEN ")
-                && !isValueProducingCaseWhen(parsedStatement.slice(), lineNo)) {
-            String upper = line.trim().toUpperCase(Locale.ROOT);
-            if (!upper.startsWith("WHEN MATCHED") && !upper.startsWith("WHEN NOT MATCHED")) {
-                condition = firstMatchedGroup(line, WHEN_CONDITION_PATTERN);
+        if (condition == null || condition.isBlank()) {
+            String upper = line == null ? "" : line.trim().toUpperCase(Locale.ROOT);
+            if (upper.startsWith("WHEN MATCHED") || upper.startsWith("WHEN NOT MATCHED")) {
+                return false;
+            }
+            condition = firstMatchedGroup(line, WHEN_CONDITION_PATTERN);
+            if (condition != null && condition.contains(".")) {
+                return false;
             }
         }
         if (condition == null || condition.isBlank()) {
@@ -1479,25 +1285,6 @@ final class RoutineLineageSupport {
             added = true;
         }
         return added;
-    }
-
-    private static boolean isValueProducingCaseWhen(StatementSlice slice, int whenLineNo) {
-        int searchStart = Math.max(slice.startLine(), whenLineNo - 8);
-        for (int line = whenLineNo - 1; line >= searchStart; line--) {
-            String raw = slice.sourceFile().getRawLine(line);
-            String upper = raw.trim().toUpperCase(Locale.ROOT);
-            if (upper.isBlank() || upper.startsWith("--")) {
-                continue;
-            }
-            if (upper.contains("CASE")) {
-                int caseIdx = upper.indexOf("CASE");
-                return upper.substring(0, caseIdx).contains("=");
-            }
-            if (upper.endsWith(";")) {
-                return false;
-            }
-        }
-        return false;
     }
 
     private static String controlFlowTargetField(String token) {
@@ -1694,8 +1481,7 @@ final class RoutineLineageSupport {
             return false;
         }
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
-        String handlerType = handler.group(1).trim().toUpperCase(Locale.ROOT);
-        String condition = handler.group(2).trim();
+        String condition = handler.group(1).trim();
         condition = condition.replaceAll("(?i)\\s+SET\\b.*$", "");
         condition = condition.replaceAll("(?i)\\s+BEGIN\\b.*$", "");
         condition = condition.replaceAll(";$", "");
@@ -1707,7 +1493,7 @@ final class RoutineLineageSupport {
                         ? TargetObjectType.FUNCTION
                         : TargetObjectType.PROCEDURE,
                 owningRoutine,
-                handlerType,
+                "",
                 RelationshipType.EXCEPTION_HANDLER_MAP,
                 lineNo,
                 line,
@@ -1864,6 +1650,7 @@ final class RoutineLineageSupport {
         tokens = tokens.stream()
                 .filter(token -> token != null && token.token() != null && !token.token().startsWith("FUNCTION:"))
                 .toList();
+        tokens = normalizeVariableSetTokenOrder(tokens);
         int i = 0;
         for (ExpressionTokenSupport.TokenUse token : tokens) {
             if (emitCompanionUsageRows) {
@@ -1892,6 +1679,64 @@ final class RoutineLineageSupport {
             ));
             i++;
         }
+    }
+
+    private static List<ExpressionTokenSupport.TokenUse> normalizeVariableSetTokenOrder(List<ExpressionTokenSupport.TokenUse> tokens) {
+        if (tokens == null || tokens.size() < 2) {
+            return tokens == null ? List.of() : tokens;
+        }
+        java.util.Map<Integer, List<ExpressionTokenSupport.TokenUse>> byLine = new java.util.LinkedHashMap<>();
+        for (ExpressionTokenSupport.TokenUse token : tokens) {
+            byLine.computeIfAbsent(token.lineNo(), k -> new ArrayList<>()).add(token);
+        }
+        List<ExpressionTokenSupport.TokenUse> normalized = new ArrayList<>();
+        for (List<ExpressionTokenSupport.TokenUse> lineTokens : byLine.values()) {
+            if (lineTokens.size() == 2) {
+                ExpressionTokenSupport.TokenUse left = lineTokens.get(0);
+                ExpressionTokenSupport.TokenUse right = lineTokens.get(1);
+                boolean oneConstantOneVariable =
+                        (left.token().startsWith("CONSTANT:") && looksLikeVariable(right.token()))
+                                || (right.token().startsWith("CONSTANT:") && looksLikeVariable(left.token()));
+                if (oneConstantOneVariable && !left.token().startsWith("CONSTANT:")) {
+                    normalized.add(right);
+                    normalized.add(left);
+                    continue;
+                }
+            }
+            if (lineTokens.size() == 3) {
+                List<ExpressionTokenSupport.TokenUse> constants = lineTokens.stream()
+                        .filter(t -> t.token().startsWith("CONSTANT:"))
+                        .toList();
+                List<ExpressionTokenSupport.TokenUse> variables = lineTokens.stream()
+                        .filter(t -> !t.token().startsWith("CONSTANT:"))
+                        .toList();
+                if (constants.size() == 2 && variables.size() == 1) {
+                    ExpressionTokenSupport.TokenUse emptyConstant = constants.stream()
+                            .filter(t -> "CONSTANT:''".equalsIgnoreCase(t.token()))
+                            .findFirst()
+                            .orElse(null);
+                    ExpressionTokenSupport.TokenUse nonEmptyConstant = constants.stream()
+                            .filter(t -> !"CONSTANT:''".equalsIgnoreCase(t.token()))
+                            .findFirst()
+                            .orElse(null);
+                    if (emptyConstant != null && nonEmptyConstant != null) {
+                        boolean commaPrefixedLabel = nonEmptyConstant.token().startsWith("CONSTANT:',");
+                        if (commaPrefixedLabel) {
+                            normalized.add(emptyConstant);
+                            normalized.add(nonEmptyConstant);
+                            normalized.add(variables.get(0));
+                        } else {
+                            normalized.add(nonEmptyConstant);
+                            normalized.add(emptyConstant);
+                            normalized.add(variables.get(0));
+                        }
+                        continue;
+                    }
+                }
+            }
+            normalized.addAll(lineTokens);
+        }
+        return List.copyOf(normalized);
     }
 
     private static boolean isDiagnosticsStateToken(String expressionText) {
