@@ -362,6 +362,46 @@ class ExtractionPipelineTest {
     }
 
     @Test
+    void mergeDirectCurrentTimestampUsesSpecialRegisterMapForTargetSlots() {
+        SqlSourceFile sourceFile = sqlFile("merge_current_timestamp.sql", List.of(
+                "MERGE INTO TEMP.TEST_EVENT_DAILY_SUMMARY T",
+                "USING (SELECT 1 AS ID FROM SYSIBM.SYSDUMMY1) S",
+                "ON T.ID = S.ID",
+                "WHEN MATCHED THEN UPDATE SET T.UPDATE_TS = CURRENT TIMESTAMP",
+                "WHEN NOT MATCHED THEN INSERT (ID, CREATE_TS) VALUES (S.ID, CURRENT TIMESTAMP);"
+        ), SqlSourceCategory.SP_DIR);
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                sourceFile.fullText(),
+                1,
+                sourceFile.getLineCount(),
+                sourceFile.rawLines(),
+                0
+        ));
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())
+                && "UPDATE_TS".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())
+                && "CREATE_TS".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r ->
+                "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())
+                        && "UPDATE_TS".equalsIgnoreCase(r.targetField())
+                        && r.relationship() == RelationshipType.MERGE_SET_MAP));
+        assertTrue(rows.stream().noneMatch(r ->
+                "CONSTANT:CURRENT TIMESTAMP".equals(r.sourceField())
+                        && "CREATE_TS".equalsIgnoreCase(r.targetField())
+                        && r.relationship() == RelationshipType.MERGE_INSERT_MAP));
+    }
+
+    @Test
     void phase10RoutineSpecificMappingsAndFallbacks() {
         SqlSourceFile sourceFile = sqlFile("phase10_proc.sql", List.of(
                 "CREATE PROCEDURE P_LOAD(IN P_ID INT, INOUT P_STATUS VARCHAR(20), OUT P_TS TIMESTAMP)",
