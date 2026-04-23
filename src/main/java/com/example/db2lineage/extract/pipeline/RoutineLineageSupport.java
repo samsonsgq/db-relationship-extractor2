@@ -256,6 +256,10 @@ final class RoutineLineageSupport {
         if (normalized.isEmpty()) {
             return;
         }
+        if (normalized.toUpperCase(Locale.ROOT).startsWith("SELECT ")
+                && normalized.toUpperCase(Locale.ROOT).contains(" INTO ")) {
+            return;
+        }
         Matcher declareCursorFor = Pattern.compile("(?is)^\\s*DECLARE\\s+[A-Z0-9_.$]+\\s+CURSOR\\s+FOR\\s+(.+?)\\s*;?\\s*$").matcher(normalized);
         if (declareCursorFor.find()) {
             normalized = declareCursorFor.group(1).trim();
@@ -396,6 +400,14 @@ final class RoutineLineageSupport {
         }
         if (statement instanceof Select select) {
             addFocusedRowsFromSelect(select, nestedParsed, context, collector);
+            addSelectIntoVariableMappings(
+                    statementText,
+                    startLine,
+                    endLine,
+                    parsedStatement,
+                    context,
+                    collector
+            );
             return;
         }
         if (statement instanceof Insert insert) {
@@ -1350,7 +1362,88 @@ final class RoutineLineageSupport {
                 return lineNo;
             }
         }
+        String unquotedNeedle = needle.replace("\"", "");
+        if (!unquotedNeedle.equals(needle)) {
+            for (int lineNo = startLine; lineNo <= endLine; lineNo++) {
+                String line = slice.sourceFile().getRawLine(lineNo).toUpperCase(Locale.ROOT).replace("\"", "");
+                if (line.contains(unquotedNeedle)) {
+                    return lineNo;
+                }
+            }
+        }
+        int dot = unquotedNeedle.lastIndexOf('.');
+        if (dot > 0 && dot < unquotedNeedle.length() - 1) {
+            String suffixNeedle = unquotedNeedle.substring(dot + 1);
+            for (int lineNo = startLine; lineNo <= endLine; lineNo++) {
+                String line = slice.sourceFile().getRawLine(lineNo).toUpperCase(Locale.ROOT).replace("\"", "");
+                if (line.contains(suffixNeedle)) {
+                    return lineNo;
+                }
+            }
+        }
         return startLine;
+    }
+
+    private static void addSelectIntoVariableMappings(String statementText,
+                                                      int startLine,
+                                                      int endLine,
+                                                      ParsedStatementResult parsedStatement,
+                                                      ExtractionContext context,
+                                                      RowCollector collector) {
+        if (statementText == null || statementText.isBlank()) {
+            return;
+        }
+        Matcher selectInto = Pattern.compile("(?is)^\\s*SELECT\\s+(.+?)\\s+INTO\\s+(.+?)\\s+FROM\\b.*$").matcher(statementText);
+        if (!selectInto.find()) {
+            return;
+        }
+        List<String> selectItems = splitArgs(selectInto.group(1));
+        List<String> intoTargets = splitArgs(selectInto.group(2));
+        int slotCount = Math.min(selectItems.size(), intoTargets.size());
+        if (slotCount <= 0) {
+            return;
+        }
+        String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
+        for (int i = 0; i < slotCount; i++) {
+            String selectItem = selectItems.get(i) == null ? "" : selectItems.get(i).trim();
+            String targetVariable = intoTargets.get(i) == null ? "" : intoTargets.get(i).trim();
+            if (selectItem.isEmpty() || targetVariable.isEmpty()) {
+                continue;
+            }
+            int lineNo = findLineInRange(parsedStatement.slice(), selectItem, startLine, endLine);
+            String lineContent = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+            try {
+                Expression expression = CCJSqlParserUtil.parseExpression(selectItem);
+                MappingRelationshipSupport.addConciseMappingRows(
+                        RelationshipType.VARIABLE_SET_MAP,
+                        owningRoutine,
+                        TargetObjectType.VARIABLE,
+                        targetVariable,
+                        expression,
+                        parsedStatement,
+                        context,
+                        collector,
+                        1,
+                        lineNo,
+                        lineNo
+                );
+            } catch (JSQLParserException ignored) {
+                collector.addDraft(new RowDraft(
+                        ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                        owningRoutine,
+                        normalizeSourceToken(selectItem),
+                        TargetObjectType.VARIABLE,
+                        owningRoutine,
+                        targetVariable,
+                        RelationshipType.VARIABLE_SET_MAP,
+                        lineNo,
+                        lineContent,
+                        ConfidenceLevel.PARSER,
+                        ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                        1
+                ));
+            }
+        }
     }
 
     static boolean isPlainVariableDeclaration(String text) {

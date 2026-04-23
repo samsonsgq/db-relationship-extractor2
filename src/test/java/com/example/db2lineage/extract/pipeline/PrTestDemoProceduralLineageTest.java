@@ -450,6 +450,26 @@ class PrTestDemoProceduralLineageTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
                 && r.lineNo() == 179
                 && "PREV_BIZ_DT".equalsIgnoreCase(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && r.lineNo() == 178
+                && "BIZ_DT".equalsIgnoreCase(r.sourceField())
+                && "ld_biz_date".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && r.lineNo() == 179
+                && "PREV_BIZ_DT".equalsIgnoreCase(r.sourceField())
+                && "ld_last_biz_date".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && r.lineNo() == 180
+                && "NEXT_BIZ_DT".equalsIgnoreCase(r.sourceField())
+                && "ld_next_biz_date".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && r.lineNo() == 181
+                && "MONTH_FLAG".equalsIgnoreCase(r.sourceField())
+                && "lv_month_flag".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && r.lineNo() == 182
+                && "REGION_CD".equalsIgnoreCase(r.sourceField())
+                && "lv_region_code".equalsIgnoreCase(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
                 && r.lineNo() == 277
                 && "CUSTOMER_NUMBER".equalsIgnoreCase(r.sourceField())
