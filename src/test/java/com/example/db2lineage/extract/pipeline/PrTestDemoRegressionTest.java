@@ -148,5 +148,25 @@ class PrTestDemoRegressionTest {
         assertFalse(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
                 && "CONSTANT:'E'".equalsIgnoreCase(r.sourceField())));
         assertFalse(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.CONTROL_FLOW_CONDITION));
+
+        List<RelationshipRow> line287 = rows.stream()
+                .filter(r -> r.lineNo() == 287)
+                .sorted(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                .toList();
+        assertEquals(1, line287.stream()
+                .filter(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                        && "CONSTANT:'N'".equalsIgnoreCase(r.sourceField()))
+                .count());
+        assertEquals(1, line287.stream()
+                .filter(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                        && "CONSTANT:'EXPIRY'".equalsIgnoreCase(r.sourceField())
+                        && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject())
+                        && "EVENT_CLASS".equalsIgnoreCase(r.targetField()))
+                .count());
+        assertEquals(2, line287.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "COALESCE".equalsIgnoreCase(r.sourceField())
+                        && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject()))
+                .count());
     }
 }
