@@ -4,6 +4,7 @@ import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.model.RelationshipRow;
 import com.example.db2lineage.model.RelationshipType;
 import com.example.db2lineage.model.TargetObjectType;
+import com.example.db2lineage.model.ConfidenceLevel;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import com.example.db2lineage.parse.SqlSourceCategory;
 import com.example.db2lineage.parse.SqlSourceFile;
@@ -15,6 +16,7 @@ import org.junit.jupiter.api.Test;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Comparator;
 
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -75,5 +77,40 @@ class PrTestDemoRegressionTest {
                 && "RPT.PR_TEST_DEMO".equals(r.targetObject())));
         assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UNKNOWN
                 && (r.lineContent().trim().equals("COMMIT;") || r.lineContent().trim().equals("ROLLBACK;"))));
+
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CREATE_TABLE
+                && "SESSION.TMP_STO_EVENT_SOURCE".equals(r.targetObject())
+                && r.lineNo() == 68));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
+                && "CONSTANT:SQLEXCEPTION".equals(r.sourceField())
+                && r.lineNo() == 100));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "CONSTANT:SQLCODE".equals(r.sourceField())
+                && "ln_sqlcode".equalsIgnoreCase(r.targetField())
+                && r.lineNo() == 102));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "CONSTANT:MESSAGE_TEXT".equals(r.sourceField())
+                && "lv_message_text".equalsIgnoreCase(r.targetField())
+                && r.lineNo() == 102));
+
+        RelationshipRow bizSelect = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.SELECT_FIELD
+                        && r.lineNo() == 178
+                        && "BIZ_DT".equalsIgnoreCase(r.sourceField()))
+                .min(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                .orElseThrow();
+        RelationshipRow bizMap = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                        && r.lineNo() == 178
+                        && "BIZ_DT".equalsIgnoreCase(r.sourceField())
+                        && "ld_biz_date".equalsIgnoreCase(r.targetField()))
+                .min(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                .orElseThrow();
+        assertTrue(bizSelect.lineRelationSeq() < bizMap.lineRelationSeq());
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                && r.lineNo() == 188
+                && "TEMP.SYS_WHERE".equalsIgnoreCase(r.targetObject())
+                && r.confidence() == ConfidenceLevel.REGEX));
     }
 }

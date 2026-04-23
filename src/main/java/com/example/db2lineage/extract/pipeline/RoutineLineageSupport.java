@@ -78,6 +78,10 @@ final class RoutineLineageSupport {
     private static final Pattern WHILE_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHILE\\s+(.+?)\\s+DO\\b.*$");
     private static final Pattern UNTIL_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*UNTIL\\s+(.+?)\\s*$");
     private static final Pattern TRANSACTION_CONTROL_PATTERN = Pattern.compile("(?i)^\\s*(COMMIT|ROLLBACK)\\b.*");
+    private static final Pattern PROCEDURAL_HANDLER_STATEMENT_PATTERN =
+            Pattern.compile("(?is)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\b.*$");
+    private static final Pattern DECLARE_GLOBAL_TEMPORARY_TABLE_STATEMENT_PATTERN =
+            Pattern.compile("(?is)^\\s*DECLARE\\s+GLOBAL\\s+TEMPORARY\\s+TABLE\\b.*$");
 
     private RoutineLineageSupport() {
     }
@@ -181,6 +185,12 @@ final class RoutineLineageSupport {
             int statementEnd = parsedStatement.slice().startLine() + i;
             String text = statement.toString().trim();
             if (!text.isEmpty()) {
+                if (shouldSkipStatementLevelProceduralExtraction(text)) {
+                    statement.setLength(0);
+                    statementLines = new ArrayList<>();
+                    statementStart = -1;
+                    continue;
+                }
                 extractSetAssignment(
                         text,
                         ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
@@ -218,6 +228,20 @@ final class RoutineLineageSupport {
         }
     }
 
+
+    private static boolean shouldSkipStatementLevelProceduralExtraction(String statementText) {
+        String normalized = statementText == null ? "" : statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
+        if (normalized.isEmpty()) {
+            return true;
+        }
+        if (DECLARE_GLOBAL_TEMPORARY_TABLE_STATEMENT_PATTERN.matcher(normalized).matches()) {
+            return true;
+        }
+        if (!PROCEDURAL_HANDLER_STATEMENT_PATTERN.matcher(normalized).matches()) {
+            return false;
+        }
+        return normalized.toUpperCase(Locale.ROOT).contains(" BEGIN");
+    }
     private static void extractTableLevelRowsFromProceduralStatement(String statementText,
                                                                      int startLine,
                                                                      int endLine,
@@ -237,10 +261,27 @@ final class RoutineLineageSupport {
             normalized = declareCursorFor.group(1).trim();
         }
         Statement parsed;
+        Matcher selectIntoMatcher = Pattern.compile("(?is)^\\s*SELECT\\s+(.+?)\\s+INTO\\s+(.+?)\\s+FROM\\s+(.+?)\\s*;?\\s*$")
+                .matcher(normalized);
+        List<String> selectIntoSources = List.of();
+        List<String> selectIntoTargets = List.of();
+        String selectIntoFromClause = "";
+        if (selectIntoMatcher.find()) {
+            selectIntoSources = splitArgs(selectIntoMatcher.group(1));
+            selectIntoTargets = splitArgs(selectIntoMatcher.group(2));
+            selectIntoFromClause = selectIntoMatcher.group(3).trim();
+        }
         try {
             parsed = CCJSqlParserUtil.parse(normalized);
         } catch (Exception ignored) {
-            return;
+            if (selectIntoSources.isEmpty() || selectIntoFromClause.isBlank()) {
+                return;
+            }
+            try {
+                parsed = CCJSqlParserUtil.parse("SELECT " + String.join(", ", selectIntoSources) + " FROM " + selectIntoFromClause);
+            } catch (Exception nestedIgnored) {
+                return;
+            }
         }
 
         int naturalOrder = 0;
@@ -261,6 +302,40 @@ final class RoutineLineageSupport {
                         line,
                         baseOrder + naturalOrder++
                 ));
+            }
+            if (!selectIntoSources.isEmpty() && !selectIntoTargets.isEmpty()) {
+                int pairs = Math.min(selectIntoSources.size(), selectIntoTargets.size());
+                String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
+                for (int i = 0; i < pairs; i++) {
+                    String sourceExpr = selectIntoSources.get(i).trim();
+                    String targetVar = normalizeSourceToken(selectIntoTargets.get(i).trim());
+                    if (targetVar.isBlank()) {
+                        continue;
+                    }
+                    String sourceToken = normalizeSourceToken(sourceExpr);
+                    try {
+                        Expression expr = CCJSqlParserUtil.parseExpression(sourceExpr);
+                        if (expr instanceof Column column && column.getColumnName() != null && !column.getColumnName().isBlank()) {
+                            sourceToken = column.getColumnName();
+                        }
+                    } catch (Exception ignored) {
+                        // Keep normalized source token fallback.
+                    }
+                    int mapLine = findLineInRange(parsedStatement.slice(), sourceExpr, startLine, endLine);
+                    String mapContent = parsedStatement.slice().sourceFile().getRawLine(mapLine);
+                    collector.addDraft(parserLineDraft(
+                            parsedStatement,
+                            context,
+                            sourceToken,
+                            TargetObjectType.VARIABLE,
+                            owningRoutine,
+                            targetVar,
+                            RelationshipType.VARIABLE_SET_MAP,
+                            mapLine,
+                            mapContent,
+                            baseOrder + naturalOrder++
+                    ));
+                }
             }
             return;
         }
