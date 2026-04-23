@@ -32,6 +32,12 @@ final class RoutineBodyStatementSupport {
         List<StatementSlice> nestedSlices = splitRoutineBody(routineStatement.slice());
         SqlStatementParser parser = new SqlStatementParser();
         for (StatementSlice nestedSlice : nestedSlices) {
+            String normalized = nestedSlice.statementText() == null
+                    ? ""
+                    : nestedSlice.statementText().replaceAll("(?m)^\\s*--.*$", "").trim().toUpperCase();
+            if (normalized.startsWith("SET ")) {
+                continue;
+            }
             ParsedStatementResult nestedParsed = parser.parse(nestedSlice);
             for (StatementExtractor extractor : NESTED_EXTRACTORS) {
                 if (extractor.supports(nestedParsed)) {

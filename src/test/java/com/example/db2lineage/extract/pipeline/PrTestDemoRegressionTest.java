@@ -18,6 +18,7 @@ import java.nio.file.Path;
 import java.util.List;
 import java.util.Comparator;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PrTestDemoRegressionTest {
@@ -112,5 +113,20 @@ class PrTestDemoRegressionTest {
                 && r.lineNo() == 188
                 && "TEMP.SYS_WHERE".equalsIgnoreCase(r.targetObject())
                 && r.confidence() == ConfidenceLevel.REGEX));
+
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.targetObject())
+                        && r.lineNo() == 191)
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "ld_actual_month_begin_date".equalsIgnoreCase(r.targetField())
+                        && r.lineNo() == 191)
+                .count());
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.targetObject())
+                && r.lineNo() == 192
+                && "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();".equals(r.lineContent())));
     }
 }
