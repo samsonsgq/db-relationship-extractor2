@@ -394,14 +394,19 @@ class ProceduralCoverageIntegrationTest {
                         && "at_end".equals(row.get("target_field")))),
                 "IF condition target_field should be populated for at_end");
         assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+                "SELECT_EXPR".equals(row.get("relationship"))
+                        && "lv_month_flag".equals(row.get("source_field")))),
+                "Value CASE WHEN condition should emit SELECT_EXPR token");
+        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
+                "SELECT_EXPR".equals(row.get("relationship"))
+                        && "CONSTANT:'E'".equals(row.get("source_field"))
+                        && "UNKNOWN".equals(row.get("target_object_type"))
+                        && "UNKNOWN_SELECT_EXPR".equals(row.get("target_object")))),
+                "Value CASE WHEN literal should emit UNKNOWN/UNKNOWN_SELECT_EXPR SELECT_EXPR token");
+        assertTrue(rows.stream().noneMatch(inProcedure.and(row ->
                 "CONTROL_FLOW_CONDITION".equals(row.get("relationship"))
                         && "lv_month_flag".equals(row.get("source_field")))),
-                "CASE WHEN condition should emit CONTROL_FLOW_CONDITION token");
-        assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
-                "CONTROL_FLOW_CONDITION".equals(row.get("relationship"))
-                        && "lv_month_flag".equals(row.get("source_field"))
-                        && "lv_month_flag".equals(row.get("target_field")))),
-                "CASE WHEN target_field should be populated for lv_month_flag");
+                "Value CASE WHEN should not be emitted as CONTROL_FLOW_CONDITION");
         assertTrue(rows.stream().noneMatch(inProcedure.and(row ->
                 "CONTROL_FLOW_CONDITION".equals(row.get("relationship"))
                         && "CLOSE_OUT_AMOUNT".equals(row.get("source_field")))),

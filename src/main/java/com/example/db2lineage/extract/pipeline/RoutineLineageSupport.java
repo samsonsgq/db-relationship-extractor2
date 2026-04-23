@@ -50,10 +50,12 @@ import net.sf.jsqlparser.expression.DateTimeLiteralExpression;
 import net.sf.jsqlparser.expression.TimeKeyExpression;
 
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -75,6 +77,8 @@ final class RoutineLineageSupport {
     private static final Pattern EXECUTE_IMMEDIATE_PATTERN = Pattern.compile("(?i)^\\s*EXECUTE\\s+IMMEDIATE\\s+(.+?)\\s*;?\\s*$");
     private static final Pattern IF_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*IF\\s+(.+?)\\s+THEN\\b.*$");
     private static final Pattern WHEN_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHEN\\s+(.+?)\\s+THEN\\b.*$");
+    private static final Pattern VALUE_CASE_WHEN_PATTERN = Pattern.compile(
+            "(?i)^\\s*WHEN\\s+.+?\\s+THEN\\s+(.+?)\\s*$");
     private static final Pattern WHILE_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHILE\\s+(.+?)\\s+DO\\b.*$");
     private static final Pattern UNTIL_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*UNTIL\\s+(.+?)\\s*$");
     private static final Pattern TRANSACTION_CONTROL_PATTERN = Pattern.compile("(?i)^\\s*(COMMIT|ROLLBACK)\\b.*");
@@ -1563,6 +1567,9 @@ final class RoutineLineageSupport {
             if (upper.startsWith("WHEN MATCHED") || upper.startsWith("WHEN NOT MATCHED")) {
                 return false;
             }
+            if (isValueProducingCaseWhenLine(line)) {
+                return false;
+            }
             condition = firstMatchedGroup(line, WHEN_CONDITION_PATTERN);
             if (condition != null && condition.contains(".")) {
                 return false;
@@ -1607,6 +1614,44 @@ final class RoutineLineageSupport {
             added = true;
         }
         return added;
+    }
+
+    private static boolean isValueProducingCaseWhenLine(String line) {
+        if (line == null) {
+            return false;
+        }
+        Matcher matcher = VALUE_CASE_WHEN_PATTERN.matcher(line);
+        if (!matcher.matches()) {
+            return false;
+        }
+        String thenSegment = matcher.group(1);
+        if (thenSegment == null) {
+            return false;
+        }
+        String normalized = thenSegment.trim();
+        if (normalized.isEmpty()) {
+            return false;
+        }
+        String upper = normalized.toUpperCase(Locale.ROOT);
+        return !upper.startsWith("SET ")
+                && !upper.startsWith("CALL ")
+                && !upper.startsWith("IF ")
+                && !upper.startsWith("LEAVE ")
+                && !upper.startsWith("ITERATE ")
+                && !upper.startsWith("INSERT ")
+                && !upper.startsWith("UPDATE ")
+                && !upper.startsWith("DELETE ")
+                && !upper.startsWith("MERGE ")
+                && !upper.startsWith("OPEN ")
+                && !upper.startsWith("CLOSE ")
+                && !upper.startsWith("FETCH ")
+                && !upper.startsWith("SIGNAL ")
+                && !upper.startsWith("RESIGNAL ")
+                && !upper.startsWith("RETURN ")
+                && !upper.startsWith("VALUES ")
+                && !upper.startsWith("SELECT ")
+                && !upper.startsWith("BEGIN ")
+                && !upper.endsWith(";");
     }
 
     private static String controlFlowTargetField(String token) {
@@ -1989,16 +2034,29 @@ final class RoutineLineageSupport {
                                                          int startLineNo,
                                                          int endLineNo,
                                                          boolean emitCompanionUsageRows) {
-        List<ExpressionTokenSupport.TokenUse> tokens = (startLineNo > 0 && endLineNo > 0)
-                ? ExpressionTokenSupport.collect(expression, parsedStatement.slice(), startLineNo, endLineNo)
-                : ExpressionTokenSupport.collect(expression, parsedStatement.slice());
-        tokens = tokens.stream()
+        VariableSetCaseTokens caseTokens = collectCaseTokensForVariableSet(expression, parsedStatement.slice(), startLineNo, endLineNo);
+        List<ExpressionTokenSupport.TokenUse> tokens = caseTokens.mappingTokens().stream()
                 .filter(token -> token != null && token.token() != null && !token.token().startsWith("FUNCTION:"))
                 .toList();
         tokens = normalizeVariableSetTokenOrder(tokens);
         int i = 0;
+        int usageOrder = 0;
+        Set<String> emittedMappings = new LinkedHashSet<>();
+        if (emitCompanionUsageRows && expression instanceof CaseExpression) {
+            for (ExpressionTokenSupport.TokenUse usageToken : caseTokens.usageTokens()) {
+                addSelectExpressionTokenRow(
+                        usageToken,
+                        parsedStatement,
+                        context,
+                        collector,
+                        baseNaturalOrder + usageOrder,
+                        new OwnershipResolution(Map.of(), null, ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()))
+                );
+                usageOrder++;
+            }
+        }
         for (ExpressionTokenSupport.TokenUse token : tokens) {
-            if (emitCompanionUsageRows) {
+            if (emitCompanionUsageRows && !(expression instanceof CaseExpression)) {
                 addSelectExpressionTokenRow(
                         token,
                         parsedStatement,
@@ -2007,6 +2065,10 @@ final class RoutineLineageSupport {
                         baseNaturalOrder + i,
                         new OwnershipResolution(Map.of(), null, ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()))
                 );
+            }
+            String dedupeKey = token.lineNo() + "|" + token.token() + "|" + ObjectRelationshipSupport.normalizeObjectName(targetObject) + "|" + targetVariable;
+            if (!emittedMappings.add(dedupeKey)) {
+                continue;
             }
             collector.addDraft(new RowDraft(
                     ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
@@ -2024,6 +2086,52 @@ final class RoutineLineageSupport {
             ));
             i++;
         }
+    }
+
+    private static VariableSetCaseTokens collectCaseTokensForVariableSet(Expression expression,
+                                                                         StatementSlice slice,
+                                                                         int startLineNo,
+                                                                         int endLineNo) {
+        if (!(expression instanceof CaseExpression caseExpression)) {
+            List<ExpressionTokenSupport.TokenUse> tokens = (startLineNo > 0 && endLineNo > 0)
+                    ? ExpressionTokenSupport.collect(expression, slice, startLineNo, endLineNo)
+                    : ExpressionTokenSupport.collect(expression, slice);
+            return new VariableSetCaseTokens(tokens, List.of());
+        }
+
+        int searchStart = startLineNo > 0 ? startLineNo : slice.startLine();
+        int searchEnd = endLineNo > 0 ? endLineNo : slice.endLine();
+        List<ExpressionTokenSupport.TokenUse> mappingTokens = new ArrayList<>();
+        List<ExpressionTokenSupport.TokenUse> usageTokens = new ArrayList<>();
+        int searchLine = searchStart;
+        if (caseExpression.getSwitchExpression() != null) {
+            searchLine = collectExpressionWithProgress(caseExpression.getSwitchExpression(), slice, searchLine, usageTokens);
+        }
+        if (caseExpression.getWhenClauses() != null) {
+            for (var whenClause : caseExpression.getWhenClauses()) {
+                if (whenClause == null) {
+                    continue;
+                }
+                if (whenClause.getWhenExpression() != null) {
+                    searchLine = collectExpressionWithProgress(whenClause.getWhenExpression(), slice, searchLine, usageTokens);
+                }
+                if (whenClause.getThenExpression() != null) {
+                    searchLine = collectExpressionWithProgress(whenClause.getThenExpression(), slice, searchLine, mappingTokens);
+                }
+            }
+        }
+        if (caseExpression.getElseExpression() != null) {
+            collectExpressionWithProgress(caseExpression.getElseExpression(), slice, searchLine, mappingTokens);
+        }
+
+        return new VariableSetCaseTokens(
+                mappingTokens.stream().filter(t -> t.lineNo() >= searchStart && t.lineNo() <= searchEnd).toList(),
+                usageTokens.stream().filter(t -> t.lineNo() >= searchStart && t.lineNo() <= searchEnd).toList()
+        );
+    }
+
+    private record VariableSetCaseTokens(List<ExpressionTokenSupport.TokenUse> mappingTokens,
+                                         List<ExpressionTokenSupport.TokenUse> usageTokens) {
     }
 
     private static List<ExpressionTokenSupport.TokenUse> normalizeVariableSetTokenOrder(List<ExpressionTokenSupport.TokenUse> tokens) {
@@ -2094,6 +2202,7 @@ final class RoutineLineageSupport {
 
     private static boolean shouldEmitCompanionUsageRows(Expression expression) {
         return expression instanceof BinaryExpression
+                || expression instanceof CaseExpression
                 || expression instanceof Function
                 || expression instanceof InExpression
                 || expression instanceof IsNullExpression
