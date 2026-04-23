@@ -1643,9 +1643,9 @@ final class RoutineLineageSupport {
         List<String> args = splitArgs(assignment.group(3));
         boolean hasCallFunctionOnLine = collector.drafts().stream().anyMatch(existing ->
                 existing.relationship() == RelationshipType.CALL_FUNCTION
-                        && existing.lineNo() == anchoredLineNo
                         && existing.targetObjectType() == TargetObjectType.FUNCTION
                         && functionName.equals(existing.targetObject())
+                        && (existing.lineNo() == anchoredLineNo || anchoredLine.equals(existing.lineContent()))
         );
         if (!hasCallFunctionOnLine) {
             collector.addDraft(parserLineDraft(
@@ -1664,11 +1664,11 @@ final class RoutineLineageSupport {
         addParameterRows(parsedStatement, context, collector, anchoredLineNo, anchoredLine, functionName, args, RelationshipType.FUNCTION_PARAM_MAP, baseNaturalOrder);
         boolean hasFunctionExprMapOnLine = collector.drafts().stream().anyMatch(existing ->
                 existing.relationship() == RelationshipType.FUNCTION_EXPR_MAP
-                        && existing.lineNo() == anchoredLineNo
                         && existing.targetObjectType() == TargetObjectType.VARIABLE
                         && owningRoutine.equals(existing.targetObject())
                         && targetVariable.equals(existing.targetField())
                         && functionName.equals(existing.sourceField())
+                        && (existing.lineNo() == anchoredLineNo || anchoredLine.equals(existing.lineContent()))
         );
         if (hasFunctionExprMapOnLine) {
             return true;
