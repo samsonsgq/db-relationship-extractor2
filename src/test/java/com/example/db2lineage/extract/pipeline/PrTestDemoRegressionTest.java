@@ -75,5 +75,20 @@ class PrTestDemoRegressionTest {
                 && "RPT.PR_TEST_DEMO".equals(r.targetObject())));
         assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.UNKNOWN
                 && (r.lineContent().trim().equals("COMMIT;") || r.lineContent().trim().equals("ROLLBACK;"))));
+
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.CREATE_TABLE
+                && "SESSION.TMP_STO_EVENT_SOURCE".equals(r.targetObject())
+                && r.lineNo() == 68));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
+                && "CONSTANT:SQLEXCEPTION".equals(r.sourceField())
+                && r.lineNo() == 100));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "CONSTANT:SQLCODE".equals(r.sourceField())
+                && "ln_sqlcode".equalsIgnoreCase(r.targetField())
+                && r.lineNo() == 102));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && "CONSTANT:MESSAGE_TEXT".equals(r.sourceField())
+                && "lv_message_text".equalsIgnoreCase(r.targetField())
+                && r.lineNo() == 102));
     }
 }

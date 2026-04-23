@@ -78,6 +78,10 @@ final class RoutineLineageSupport {
     private static final Pattern WHILE_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*WHILE\\s+(.+?)\\s+DO\\b.*$");
     private static final Pattern UNTIL_CONDITION_PATTERN = Pattern.compile("(?i)^\\s*UNTIL\\s+(.+?)\\s*$");
     private static final Pattern TRANSACTION_CONTROL_PATTERN = Pattern.compile("(?i)^\\s*(COMMIT|ROLLBACK)\\b.*");
+    private static final Pattern PROCEDURAL_HANDLER_STATEMENT_PATTERN =
+            Pattern.compile("(?is)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\b.*$");
+    private static final Pattern DECLARE_GLOBAL_TEMPORARY_TABLE_STATEMENT_PATTERN =
+            Pattern.compile("(?is)^\\s*DECLARE\\s+GLOBAL\\s+TEMPORARY\\s+TABLE\\b.*$");
 
     private RoutineLineageSupport() {
     }
@@ -181,6 +185,12 @@ final class RoutineLineageSupport {
             int statementEnd = parsedStatement.slice().startLine() + i;
             String text = statement.toString().trim();
             if (!text.isEmpty()) {
+                if (shouldSkipStatementLevelProceduralExtraction(text)) {
+                    statement.setLength(0);
+                    statementLines = new ArrayList<>();
+                    statementStart = -1;
+                    continue;
+                }
                 extractSetAssignment(
                         text,
                         ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
@@ -218,6 +228,20 @@ final class RoutineLineageSupport {
         }
     }
 
+
+    private static boolean shouldSkipStatementLevelProceduralExtraction(String statementText) {
+        String normalized = statementText == null ? "" : statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
+        if (normalized.isEmpty()) {
+            return true;
+        }
+        if (DECLARE_GLOBAL_TEMPORARY_TABLE_STATEMENT_PATTERN.matcher(normalized).matches()) {
+            return true;
+        }
+        if (!PROCEDURAL_HANDLER_STATEMENT_PATTERN.matcher(normalized).matches()) {
+            return false;
+        }
+        return normalized.toUpperCase(Locale.ROOT).contains(" BEGIN");
+    }
     private static void extractTableLevelRowsFromProceduralStatement(String statementText,
                                                                      int startLine,
                                                                      int endLine,
