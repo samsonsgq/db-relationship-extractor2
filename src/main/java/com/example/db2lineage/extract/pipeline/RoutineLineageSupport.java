@@ -490,13 +490,16 @@ final class RoutineLineageSupport {
             return;
         }
         if (statement instanceof Update update) {
+            addFocusedRowsFromUpdate(update, nestedParsed, context, collector);
             addFocusedExpressionRows(RelationshipType.WHERE, update.getWhere(), nestedParsed, context, collector, "WHERE");
             OwnershipResolution updateResolution = buildOwnershipResolution(update, context, ObjectRelationshipSupport.sourceObjectName(nestedParsed.slice()));
             if (update.getExpressions() != null) {
                 for (Expression expression : update.getExpressions()) {
                     if (expression instanceof ParenthesedSelect parenthesedSelect) {
+                        addFocusedRowsFromSelect(parenthesedSelect.getSelect(), nestedParsed, context, collector);
                         addFocusedWhereRowsFromSelect(parenthesedSelect.getSelect(), nestedParsed, context, collector, updateResolution);
                     } else if (expression instanceof Select select) {
+                        addFocusedRowsFromSelect(select, nestedParsed, context, collector);
                         addFocusedWhereRowsFromSelect(select, nestedParsed, context, collector, updateResolution);
                     }
                 }
@@ -519,6 +522,207 @@ final class RoutineLineageSupport {
             addFocusedRowsFromMerge(merge, nestedParsed, context, collector);
             OwnershipResolution mergeResolution = buildOwnershipResolution(merge, context, ObjectRelationshipSupport.sourceObjectName(nestedParsed.slice()));
             addFocusedWhereRowsFromMergeSource(merge, nestedParsed, context, collector, mergeResolution);
+        }
+    }
+
+    private static void addFocusedRowsFromUpdate(Update update,
+                                                 ParsedStatementResult parsedStatement,
+                                                 ExtractionContext context,
+                                                 RowCollector collector) {
+        if (update == null || update.getTable() == null) {
+            return;
+        }
+        String targetName = update.getTable().getFullyQualifiedName();
+        TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, targetName, TargetObjectType.TABLE);
+        collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
+                context,
+                parsedStatement,
+                RelationshipType.UPDATE_TABLE,
+                targetType,
+                targetName,
+                0
+        ));
+        if (update.getUpdateSets() == null) {
+            return;
+        }
+        int naturalOrder = 1;
+        for (var updateSet : update.getUpdateSets()) {
+            if (updateSet.getColumns() != null) {
+                for (Column column : updateSet.getColumns()) {
+                    MappingRelationshipSupport.addTargetColumnRow(
+                            RelationshipType.UPDATE_TARGET_COL,
+                            targetName,
+                            targetType,
+                            column.getColumnName(),
+                            parsedStatement,
+                            context,
+                            collector,
+                            naturalOrder++
+                    );
+                }
+            }
+            if (updateSet.getValues() == null) {
+                continue;
+            }
+            int colIndex = 0;
+            for (Object value : updateSet.getValues()) {
+                if (value instanceof ParenthesedSelect parenthesedSelect) {
+                    colIndex += addFocusedUpdateSetMappingsFromSelect(
+                            parenthesedSelect.getSelect(),
+                            updateSet.getColumns(),
+                            colIndex,
+                            targetName,
+                            targetType,
+                            parsedStatement,
+                            context,
+                            collector,
+                            naturalOrder
+                    );
+                    naturalOrder += 10_000;
+                    continue;
+                }
+                if (value instanceof Select select) {
+                    colIndex += addFocusedUpdateSetMappingsFromSelect(
+                            select,
+                            updateSet.getColumns(),
+                            colIndex,
+                            targetName,
+                            targetType,
+                            parsedStatement,
+                            context,
+                            collector,
+                            naturalOrder
+                    );
+                    naturalOrder += 10_000;
+                    continue;
+                }
+                if (value instanceof Expression expression) {
+                    String targetField = updateSet.getColumns() != null && colIndex < updateSet.getColumns().size()
+                            ? updateSet.getColumns().get(colIndex).getColumnName()
+                            : "";
+                    if (!targetField.isBlank()) {
+                        MappingRelationshipSupport.addConciseMappingRows(
+                                RelationshipType.UPDATE_SET_MAP,
+                                targetName,
+                                targetType,
+                                targetField,
+                                expression,
+                                parsedStatement,
+                                context,
+                                collector,
+                                naturalOrder++
+                        );
+                    }
+                    colIndex++;
+                    continue;
+                }
+                colIndex++;
+            }
+        }
+        addFocusedSelectTablesFromExists(update.getWhere(), parsedStatement, context, collector);
+        addFocusedSelectTablesFromUpdateText(parsedStatement, context, collector);
+    }
+
+    private static int addFocusedUpdateSetMappingsFromSelect(Select select,
+                                                             List<Column> targetColumns,
+                                                             int startTargetIndex,
+                                                             String targetName,
+                                                             TargetObjectType targetType,
+                                                             ParsedStatementResult parsedStatement,
+                                                             ExtractionContext context,
+                                                             RowCollector collector,
+                                                             int naturalOrder) {
+        if (!(select instanceof PlainSelect plainSelect) || plainSelect.getSelectItems() == null) {
+            return 1;
+        }
+        int mappedCount = 0;
+        for (SelectItem<?> selectItem : plainSelect.getSelectItems()) {
+            if (selectItem == null || selectItem.getExpression() == null) {
+                continue;
+            }
+            Expression expression = selectItem.getExpression();
+            String targetField = targetColumns != null && startTargetIndex + mappedCount < targetColumns.size()
+                    ? targetColumns.get(startTargetIndex + mappedCount).getColumnName()
+                    : "";
+            if (!targetField.isBlank()) {
+                MappingRelationshipSupport.addConciseMappingRows(
+                        RelationshipType.UPDATE_SET_MAP,
+                        targetName,
+                        targetType,
+                        targetField,
+                        expression,
+                        parsedStatement,
+                        context,
+                        collector,
+                        naturalOrder + mappedCount
+                );
+            }
+            mappedCount++;
+        }
+        return Math.max(1, mappedCount);
+    }
+
+    private static void addFocusedSelectTablesFromExists(Expression expression,
+                                                         ParsedStatementResult parsedStatement,
+                                                         ExtractionContext context,
+                                                         RowCollector collector) {
+        if (expression == null) {
+            return;
+        }
+        if (expression instanceof ExistsExpression existsExpression) {
+            Expression right = existsExpression.getRightExpression();
+            if (right instanceof ParenthesedSelect parenthesedSelect) {
+                addFocusedRowsFromSelect(parenthesedSelect.getSelect(), parsedStatement, context, collector);
+            } else if (right instanceof Select select) {
+                addFocusedRowsFromSelect(select, parsedStatement, context, collector);
+            }
+            return;
+        }
+        if (expression instanceof AndExpression andExpression) {
+            addFocusedSelectTablesFromExists(andExpression.getLeftExpression(), parsedStatement, context, collector);
+            addFocusedSelectTablesFromExists(andExpression.getRightExpression(), parsedStatement, context, collector);
+            return;
+        }
+        if (expression instanceof OrExpression orExpression) {
+            addFocusedSelectTablesFromExists(orExpression.getLeftExpression(), parsedStatement, context, collector);
+            addFocusedSelectTablesFromExists(orExpression.getRightExpression(), parsedStatement, context, collector);
+        }
+    }
+
+    private static void addFocusedSelectTablesFromUpdateText(ParsedStatementResult parsedStatement,
+                                                             ExtractionContext context,
+                                                             RowCollector collector) {
+        Pattern fromPattern = Pattern.compile("(?i)\\bFROM\\s+([A-Z0-9_.$\\\"]+)");
+        Set<String> seen = new LinkedHashSet<>();
+        for (int lineNo = parsedStatement.slice().startLine(); lineNo <= parsedStatement.slice().endLine(); lineNo++) {
+            String raw = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+            Matcher matcher = fromPattern.matcher(raw);
+            while (matcher.find()) {
+                String rawObject = matcher.group(1);
+                if (rawObject == null || rawObject.isBlank()) {
+                    continue;
+                }
+                String objectName = ObjectRelationshipSupport.normalizeObjectName(rawObject);
+                String dedupeKey = lineNo + "|" + objectName.toUpperCase(Locale.ROOT);
+                if (!seen.add(dedupeKey)) {
+                    continue;
+                }
+                TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, objectName, TargetObjectType.TABLE);
+                collector.addDraft(new RowDraft(
+                        ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                        ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                        "",
+                        targetType,
+                        objectName,
+                        "",
+                        RelationshipType.SELECT_TABLE,
+                        lineNo,
+                        raw,
+                        ConfidenceLevel.PARSER,
+                        ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                        0
+                ));
+            }
         }
     }
 
@@ -856,6 +1060,23 @@ final class RoutineLineageSupport {
                                                       ParsedStatementResult parsedStatement,
                                                       ExtractionContext context,
                                                       RowCollector collector) {
+        for (TableRef tableRef : collectSelectReadObjectsFromPlainSelect(plainSelect, parsedStatement, context)) {
+            int lineNo = tableRef.lineNo() > 0 ? tableRef.lineNo() : parsedStatement.slice().startLine();
+            collector.addDraft(new RowDraft(
+                    ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                    "",
+                    tableRef.targetType(),
+                    tableRef.targetObject(),
+                    "",
+                    RelationshipType.SELECT_TABLE,
+                    lineNo,
+                    parsedStatement.slice().sourceFile().getRawLine(lineNo),
+                    ConfidenceLevel.PARSER,
+                    ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                    0
+            ));
+        }
         if (plainSelect.getSelectItems() != null) {
             int projectionOrder = 0;
             int expressionSearchLine = parsedStatement.slice().startLine();
@@ -935,6 +1156,39 @@ final class RoutineLineageSupport {
             } else {
                 addFocusedExpressionRows(RelationshipType.JOIN_ON, join.getOnExpression(), parsedStatement, context, collector, " ON ");
             }
+        }
+    }
+
+    private static List<TableRef> collectSelectReadObjectsFromPlainSelect(PlainSelect plainSelect,
+                                                                           ParsedStatementResult parsedStatement,
+                                                                           ExtractionContext context) {
+        java.util.LinkedHashSet<TableRef> refs = new java.util.LinkedHashSet<>();
+        collectFromItemRefs(plainSelect.getFromItem(), parsedStatement, context, refs);
+        if (plainSelect.getJoins() != null) {
+            for (Join join : plainSelect.getJoins()) {
+                collectFromItemRefs(join.getFromItem(), parsedStatement, context, refs);
+            }
+        }
+        return List.copyOf(refs);
+    }
+
+    private static void collectFromItemRefs(FromItem fromItem,
+                                            ParsedStatementResult parsedStatement,
+                                            ExtractionContext context,
+                                            Set<TableRef> refs) {
+        if (fromItem == null) {
+            return;
+        }
+        if (fromItem instanceof Table table) {
+            String objectName = table.getFullyQualifiedName();
+            if (objectName == null || objectName.isBlank()) {
+                return;
+            }
+            TargetObjectType targetType = context.schemaMetadataService()
+                    .resolveObjectType(objectName)
+                    .orElse(TargetObjectType.TABLE);
+            int lineNo = findExpressionLine(parsedStatement.slice(), objectName, parsedStatement.slice().startLine());
+            refs.add(new TableRef(ObjectRelationshipSupport.normalizeObjectName(objectName), targetType, lineNo));
         }
     }
 
@@ -1288,6 +1542,9 @@ final class RoutineLineageSupport {
     }
 
     private record ExistsContext(Expression whereExpression, OwnershipResolution resolution) {
+    }
+
+    private record TableRef(String targetObject, TargetObjectType targetType, int lineNo) {
     }
 
     private static ParsedStatementResult parsePredicateCandidate(String normalizedStatementText,

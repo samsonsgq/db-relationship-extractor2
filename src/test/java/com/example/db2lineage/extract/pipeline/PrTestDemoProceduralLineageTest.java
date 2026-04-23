@@ -382,6 +382,43 @@ class PrTestDemoProceduralLineageTest {
                 && "DEAL_SB_NUM".equalsIgnoreCase(r.sourceField())
                 && "TEMP.STRUCTURED_OPTION_SOD".equalsIgnoreCase(r.targetObject())
                 && "DEAL_SB_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_TABLE
+                && r.lineNo() == 756
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_TARGET_COL
+                && r.lineNo() == 757
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "DEAL_NUMBER".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_TARGET_COL
+                && r.lineNo() == 757
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "DEAL_SUB_NUMBER".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
+                && r.lineNo() == 759
+                && "ORIG_DEAL_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.STRUCTURED_OPTION_SOD".equalsIgnoreCase(r.targetObject())
+                && "ORIG_DEAL_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
+                && r.lineNo() == 760
+                && "ORIG_DEAL_SB_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.STRUCTURED_OPTION_SOD".equalsIgnoreCase(r.targetObject())
+                && "ORIG_DEAL_SB_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP
+                && r.lineNo() == 759
+                && "ORIG_DEAL_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "DEAL_NUMBER".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.UPDATE_SET_MAP
+                && r.lineNo() == 760
+                && "ORIG_DEAL_SB_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "DEAL_SUB_NUMBER".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                && r.lineNo() == 761
+                && "TEMP.STRUCTURED_OPTION_SOD".equalsIgnoreCase(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                && r.lineNo() == 775
+                && "TEMP.STRUCTURED_OPTION_SOD".equalsIgnoreCase(r.targetObject())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.WHERE
                 && r.lineNo() == 800
                 && "CREATION_DATE".equalsIgnoreCase(r.sourceField())
