@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RowCollectorTest {
 
@@ -97,6 +98,80 @@ class RowCollectorTest {
         assertEquals(0, rows.get(0).lineRelationSeq());
         assertEquals(1, rows.get(1).lineRelationSeq());
         assertEquals(2, rows.get(2).lineRelationSeq());
+    }
+
+    @Test
+    void finalizeRowsSuppressesKnownRegexFallbackDuplicates() {
+        RowCollector collector = new RowCollector();
+
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "CONSTANT:SQLCODE",
+                TargetObjectType.VARIABLE,
+                "RPT.PR_TEST_DEMO",
+                "ln_sqlcode",
+                RelationshipType.DIAGNOSTICS_FETCH_MAP,
+                98,
+                "SET ln_sqlcode = SQLCODE;",
+                ConfidenceLevel.PARSER,
+                0,
+                0
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "CONSTANT:SQLCODE",
+                TargetObjectType.VARIABLE,
+                "RPT.PR_TEST_DEMO",
+                "ln_sqlcode",
+                RelationshipType.DIAGNOSTICS_FETCH_MAP,
+                102,
+                "SET ln_sqlcode = SQLCODE;",
+                ConfidenceLevel.REGEX,
+                0,
+                0
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "CONSTANT:SQLEXCEPTION",
+                TargetObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "",
+                RelationshipType.EXCEPTION_HANDLER_MAP,
+                100,
+                "DECLARE EXIT HANDLER FOR SQLEXCEPTION",
+                ConfidenceLevel.REGEX,
+                0,
+                0
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "CONSTANT:SQLEXCEPTION",
+                TargetObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "EXIT",
+                RelationshipType.EXCEPTION_HANDLER_MAP,
+                96,
+                "DECLARE EXIT HANDLER FOR SQLEXCEPTION",
+                ConfidenceLevel.PARSER,
+                0,
+                0
+        ));
+
+        List<RelationshipRow> rows = collector.finalizeRows();
+
+        assertEquals(2, rows.size());
+        assertTrue(rows.stream().anyMatch(r ->
+                r.relationship() == RelationshipType.DIAGNOSTICS_FETCH_MAP
+                        && r.lineNo() == 98
+                        && "CONSTANT:SQLCODE".equals(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r ->
+                r.relationship() == RelationshipType.EXCEPTION_HANDLER_MAP
+                        && "EXIT".equals(r.targetField())
+                        && r.lineNo() == 96));
     }
 
     private static RowDraft draft(
