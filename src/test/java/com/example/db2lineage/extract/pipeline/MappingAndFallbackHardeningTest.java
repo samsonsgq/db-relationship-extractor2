@@ -43,6 +43,50 @@ class MappingAndFallbackHardeningTest {
     }
 
     @Test
+    void functionExprMapUsesOnlyOutermostFunctionForTargetSlot() {
+        SqlSourceFile sourceFile = sqlFile("outermost_only.sql", List.of(
+                "UPDATE T_DST SET SCORE = COALESCE(CHAR(SRC_VAL), '0');"
+        ), SqlSourceCategory.SP_DIR);
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        long functionExprMapCount = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP && "SCORE".equals(r.targetField()))
+                .count();
+        assertEquals(1, functionExprMapCount);
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                && "SCORE".equals(r.targetField())
+                && "COALESCE".equals(r.sourceField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                && "SCORE".equals(r.targetField())
+                && "CHAR".equals(r.sourceField())));
+    }
+
+    @Test
+    void functionExprMapNotEmittedWhenExpressionRootIsNotFunction() {
+        SqlSourceFile sourceFile = sqlFile("case_root.sql", List.of(
+                "UPDATE T_DST SET SCORE = CASE WHEN COALESCE(SRC_VAL, 0) > 0 THEN 1 ELSE 0 END;"
+        ), SqlSourceCategory.SP_DIR);
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(slice(sourceFile, 1, sourceFile.rawLines().get(0), 0));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                && "SCORE".equals(r.targetField())));
+    }
+
+    @Test
     void proceduralRegexRowsUseRegexConfidence() {
         SqlSourceFile sourceFile = sqlFile("diag.sql", List.of(
                 "GET DIAGNOSTICS V_SQLSTATE = RETURNED_SQLSTATE"

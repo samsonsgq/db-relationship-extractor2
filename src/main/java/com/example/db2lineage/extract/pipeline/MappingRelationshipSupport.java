@@ -334,38 +334,28 @@ final class MappingRelationshipSupport {
                                                   ExtractionContext context,
                                                   RowCollector collector,
                                                   int naturalOrder) {
-        if (expression == null) {
+        if (!(expression instanceof Function function)) {
             return;
         }
-        Set<String> functions = new LinkedHashSet<>();
-        expression.accept(new net.sf.jsqlparser.expression.ExpressionVisitorAdapter<Void>() {
-            @Override
-            public <S> Void visit(Function function, S context1) {
-                if (function.getName() != null && !function.getName().isBlank()) {
-                    functions.add(function.getName());
-                }
-                return super.visit(function, context1);
-            }
-        }, null);
-        int i = 0;
-        for (String function : functions) {
-            TokenPosition position = locateToken(parsedStatement.slice(), function, naturalOrder + i);
-            collector.addDraft(new RowDraft(
-                    ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
-                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                    function.toUpperCase(Locale.ROOT),
-                    targetType,
-                    ObjectRelationshipSupport.normalizeObjectName(targetObject),
-                    targetField,
-                    RelationshipType.FUNCTION_EXPR_MAP,
-                    position.lineNo(),
-                    position.lineContent(),
-                    ConfidenceLevel.PARSER,
-                    ObjectRelationshipSupport.statementOrder(context, parsedStatement),
-                    naturalOrder + i
-            ));
-            i++;
+        if (function.getName() == null || function.getName().isBlank()) {
+            return;
         }
+        String functionName = function.getName();
+        TokenPosition position = locateToken(parsedStatement.slice(), functionName, naturalOrder);
+        collector.addDraft(new RowDraft(
+                ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                functionName.toUpperCase(Locale.ROOT),
+                targetType,
+                ObjectRelationshipSupport.normalizeObjectName(targetObject),
+                targetField,
+                RelationshipType.FUNCTION_EXPR_MAP,
+                position.lineNo(),
+                position.lineContent(),
+                ConfidenceLevel.PARSER,
+                ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                naturalOrder
+        ));
     }
 
     static TokenPosition locateToken(StatementSlice slice, String token, int fallbackOrder) {
