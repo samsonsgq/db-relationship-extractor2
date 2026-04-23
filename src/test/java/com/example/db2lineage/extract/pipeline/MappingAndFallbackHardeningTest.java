@@ -4,6 +4,7 @@ import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.model.ConfidenceLevel;
 import com.example.db2lineage.model.RelationshipRow;
 import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.parse.ParseIssue;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import com.example.db2lineage.parse.SqlSourceCategory;
 import com.example.db2lineage.parse.SqlSourceFile;

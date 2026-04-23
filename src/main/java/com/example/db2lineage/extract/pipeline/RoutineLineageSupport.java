@@ -155,9 +155,15 @@ final class RoutineLineageSupport {
         }
         int baseOrder = 500_000;
         for (int i = bodyStartIdx; i <= bodyEndIdx; i++) {
-            String line = parsedStatement.slice().rawLines().get(i);
-            int lineNo = parsedStatement.slice().startLine() + i;
-            extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100);
+            String rawLine = parsedStatement.slice().rawLines().get(i);
+            String[] physicalLines = rawLine.split("\\R", -1);
+            int lineOrderOffset = 0;
+            for (int physicalOffset = 0; physicalOffset < physicalLines.length; physicalOffset++) {
+                String line = physicalLines[physicalOffset];
+                int lineNo = parsedStatement.slice().startLine() + i + physicalOffset;
+                extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100 + lineOrderOffset);
+                lineOrderOffset += 10;
+            }
         }
         extractStatementLevelProceduralMappings(parsedStatement, context, collector, baseOrder + 10_000_000, bodyStartIdx, bodyEndIdx);
     }
@@ -1626,7 +1632,7 @@ final class RoutineLineageSupport {
     private static boolean extractFunctionAssignment(String line, int lineNo, ParsedStatementResult parsedStatement,
                                                      ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
         Matcher assignment = FUNCTION_CALL_ASSIGNMENT.matcher(line);
-        if (!assignment.find()) {
+        if (!assignment.matches()) {
             return false;
         }
         String targetVariable = assignment.group(1).trim();
