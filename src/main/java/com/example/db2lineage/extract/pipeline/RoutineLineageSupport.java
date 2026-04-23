@@ -232,6 +232,10 @@ final class RoutineLineageSupport {
         if (normalized.isEmpty()) {
             return;
         }
+        Matcher declareCursorFor = Pattern.compile("(?is)^\\s*DECLARE\\s+[A-Z0-9_.$]+\\s+CURSOR\\s+FOR\\s+(.+?)\\s*;?\\s*$").matcher(normalized);
+        if (declareCursorFor.find()) {
+            normalized = declareCursorFor.group(1).trim();
+        }
         Statement parsed;
         try {
             parsed = CCJSqlParserUtil.parse(normalized);
@@ -405,9 +409,142 @@ final class RoutineLineageSupport {
         }
         if (statement instanceof Merge merge) {
             addFocusedExpressionRows(RelationshipType.MERGE_MATCH, merge.getOnCondition(), nestedParsed, context, collector, " ON ");
+            addFocusedRowsFromMerge(merge, nestedParsed, context, collector);
             OwnershipResolution mergeResolution = buildOwnershipResolution(merge, context, ObjectRelationshipSupport.sourceObjectName(nestedParsed.slice()));
             addFocusedWhereRowsFromMergeSource(merge, nestedParsed, context, collector, mergeResolution);
         }
+    }
+
+    private static void addFocusedRowsFromMerge(Merge merge,
+                                                ParsedStatementResult parsedStatement,
+                                                ExtractionContext context,
+                                                RowCollector collector) {
+        if (merge == null || merge.getTable() == null) {
+            return;
+        }
+        String targetName = merge.getTable().getFullyQualifiedName();
+        TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, targetName, TargetObjectType.TABLE);
+        int naturalOrder = 0;
+        int searchLine = parsedStatement.slice().startLine();
+        int updateAnchor = findLineInRange(parsedStatement.slice(), "UPDATE SET", parsedStatement.slice().startLine(), parsedStatement.slice().endLine());
+        if (updateAnchor > 0) {
+            searchLine = Math.max(searchLine, updateAnchor);
+        }
+        if (merge.getMergeUpdate() != null && merge.getMergeUpdate().getUpdateSets() != null) {
+            for (var updateSet : merge.getMergeUpdate().getUpdateSets()) {
+                if (updateSet.getColumns() == null) {
+                    continue;
+                }
+                for (Column column : updateSet.getColumns()) {
+                    int lineNo = findMergeUpdateTargetLine(parsedStatement.slice(), column.getColumnName(), searchLine);
+                    if (lineNo <= 0) {
+                        MappingRelationshipSupport.addTargetColumnRow(
+                                RelationshipType.MERGE_TARGET_COL,
+                                targetName,
+                                targetType,
+                                column.getColumnName(),
+                                parsedStatement,
+                                context,
+                                collector,
+                                naturalOrder++
+                        );
+                        continue;
+                    }
+                    searchLine = Math.min(parsedStatement.slice().endLine(), lineNo + 1);
+                    String rawLine = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+                    collector.addDraft(new RowDraft(
+                            ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                            ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                            "",
+                            targetType,
+                            ObjectRelationshipSupport.normalizeObjectName(targetName),
+                            column.getColumnName(),
+                            RelationshipType.MERGE_TARGET_COL,
+                            lineNo,
+                            rawLine,
+                            ConfidenceLevel.PARSER,
+                            ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                            naturalOrder++
+                    ));
+                }
+            }
+        }
+        int insertAnchor = findLineInRange(parsedStatement.slice(), "INSERT", parsedStatement.slice().startLine(), parsedStatement.slice().endLine());
+        if (insertAnchor > 0) {
+            searchLine = Math.max(searchLine, insertAnchor);
+        }
+        if (merge.getMergeInsert() != null && merge.getMergeInsert().getColumns() != null) {
+            for (Column column : merge.getMergeInsert().getColumns()) {
+                int lineNo = findMergeInsertTargetLine(parsedStatement.slice(), column.getColumnName(), searchLine);
+                if (lineNo <= 0) {
+                    MappingRelationshipSupport.addTargetColumnRow(
+                            RelationshipType.MERGE_TARGET_COL,
+                            targetName,
+                            targetType,
+                            column.getColumnName(),
+                            parsedStatement,
+                            context,
+                            collector,
+                            naturalOrder++
+                    );
+                    continue;
+                }
+                searchLine = Math.min(parsedStatement.slice().endLine(), lineNo + 1);
+                String rawLine = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+                collector.addDraft(new RowDraft(
+                        ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                        ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                        "",
+                        targetType,
+                        ObjectRelationshipSupport.normalizeObjectName(targetName),
+                        column.getColumnName(),
+                        RelationshipType.MERGE_TARGET_COL,
+                        lineNo,
+                        rawLine,
+                        ConfidenceLevel.PARSER,
+                        ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                        naturalOrder++
+                ));
+            }
+        }
+    }
+
+    private static int findMergeUpdateTargetLine(StatementSlice slice, String columnName, int startLine) {
+        if (columnName == null || columnName.isBlank()) {
+            return -1;
+        }
+        String normalized = columnName.toUpperCase(Locale.ROOT);
+        Pattern targetPattern = Pattern.compile("(?i)(?:\\b[A-Z0-9_]+\\.)?\\b" + Pattern.quote(normalized) + "\\b\\s*=");
+        for (int lineNo = Math.max(slice.startLine(), startLine); lineNo <= slice.endLine(); lineNo++) {
+            String line = slice.sourceFile().getRawLine(lineNo);
+            String upper = line.toUpperCase(Locale.ROOT);
+            if (upper.contains("WHEN NOT MATCHED")) {
+                break;
+            }
+            if (targetPattern.matcher(upper).find()) {
+                return lineNo;
+            }
+        }
+        return -1;
+    }
+
+    private static int findMergeInsertTargetLine(StatementSlice slice, String columnName, int startLine) {
+        if (columnName == null || columnName.isBlank()) {
+            return -1;
+        }
+        String normalized = columnName.toUpperCase(Locale.ROOT);
+        Pattern columnPattern = Pattern.compile("(?i)\\b" + Pattern.quote(normalized) + "\\b");
+        for (int lineNo = Math.max(slice.startLine(), startLine); lineNo <= slice.endLine(); lineNo++) {
+            String line = slice.sourceFile().getRawLine(lineNo);
+            String upper = line.toUpperCase(Locale.ROOT);
+            if (upper.contains("VALUES")) {
+                break;
+            }
+            if (columnPattern.matcher(upper).find()) {
+                return lineNo;
+            }
+        }
+        return -1;
     }
 
     private static void addFocusedWhereRowsFromMergeSource(Merge merge,
@@ -645,18 +782,19 @@ final class RoutineLineageSupport {
                             context,
                             ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice())
                     );
+                    String anchorToken = column.getFullyQualifiedName() == null || column.getFullyQualifiedName().isBlank()
+                            ? column.getColumnName()
+                            : column.getFullyQualifiedName();
+                    int columnLine = findExpressionLine(parsedStatement.slice(), anchorToken, expressionSearchLine);
                     addSelectFieldRow(
                             column,
                             parsedStatement,
                             context,
                             collector,
                             projectionOrder++,
-                            resolution
+                            resolution,
+                            columnLine
                     );
-                    String anchorToken = column.getFullyQualifiedName() == null || column.getFullyQualifiedName().isBlank()
-                            ? column.getColumnName()
-                            : column.getFullyQualifiedName();
-                    int columnLine = findExpressionLine(parsedStatement.slice(), anchorToken, expressionSearchLine);
                     if (columnLine > 0) {
                         expressionSearchLine = columnLine + 1;
                     }
@@ -1924,7 +2062,8 @@ final class RoutineLineageSupport {
                                           ExtractionContext context,
                                           RowCollector collector,
                                           int baseNaturalOrder,
-                                          OwnershipResolution resolution) {
+                                          OwnershipResolution resolution,
+                                          int preferredLine) {
         if (column == null) {
             return;
         }
@@ -1936,7 +2075,14 @@ final class RoutineLineageSupport {
         if (anchorToken == null || anchorToken.isBlank()) {
             anchorToken = sourceField;
         }
-        LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), anchorToken, baseNaturalOrder);
+        LineAnchorResolver.LineAnchor anchor;
+        if (preferredLine > 0) {
+            String rawLine = parsedStatement.slice().sourceFile().getRawLine(preferredLine);
+            int idx = rawLine.toUpperCase(Locale.ROOT).indexOf(anchorToken.toUpperCase(Locale.ROOT));
+            anchor = new LineAnchorResolver.LineAnchor(preferredLine, rawLine, Math.max(0, idx), idx >= 0);
+        } else {
+            anchor = LineAnchorResolver.token(parsedStatement.slice(), anchorToken, baseNaturalOrder);
+        }
 
         TableOwner owner = null;
         if (column.getTable() != null && column.getTable().getName() != null) {
