@@ -30,7 +30,8 @@ public final class RowCollector {
             deduplicated.putIfAbsent(SemanticKey.from(draft), draft);
         }
 
-        List<RowDraft> filteredDrafts = suppressUnknownWhenResolvedExists(new ArrayList<>(deduplicated.values()));
+        List<RowDraft> filteredDrafts = suppressNearbyRegexDuplicates(new ArrayList<>(deduplicated.values()));
+        filteredDrafts = suppressUnknownWhenResolvedExists(filteredDrafts);
 
         Map<GroupKey, List<RowDraft>> grouped = new LinkedHashMap<>();
         for (RowDraft draft : filteredDrafts) {
@@ -95,6 +96,42 @@ public final class RowCollector {
             filtered.add(row);
         }
         return filtered;
+    }
+
+    private static List<RowDraft> suppressNearbyRegexDuplicates(List<RowDraft> rows) {
+        List<RowDraft> ordered = new ArrayList<>(rows);
+        ordered.sort(Comparator
+                .comparing(RowDraft::sourceObject)
+                .thenComparingInt(RowDraft::statementOrder)
+                .thenComparingInt(RowDraft::lineNo)
+                .thenComparingInt(RowDraft::naturalOrderOnLine));
+        Map<NearbyDuplicateKey, Integer> firstLineByKey = new LinkedHashMap<>();
+        List<RowDraft> filtered = new ArrayList<>();
+        for (RowDraft row : ordered) {
+            if (!isNearbyDuplicateCandidate(row)) {
+                filtered.add(row);
+                continue;
+            }
+            NearbyDuplicateKey key = NearbyDuplicateKey.from(row);
+            Integer previousLine = firstLineByKey.get(key);
+            if (previousLine != null && row.lineNo() - previousLine <= 5) {
+                continue;
+            }
+            firstLineByKey.putIfAbsent(key, row.lineNo());
+            filtered.add(row);
+        }
+        return filtered;
+    }
+
+    private static boolean isNearbyDuplicateCandidate(RowDraft row) {
+        if (row.confidence() != com.example.db2lineage.model.ConfidenceLevel.REGEX) {
+            return false;
+        }
+        return row.relationship() == com.example.db2lineage.model.RelationshipType.CREATE_TABLE
+                || row.relationship() == com.example.db2lineage.model.RelationshipType.EXCEPTION_HANDLER_MAP
+                || (row.relationship() == com.example.db2lineage.model.RelationshipType.DIAGNOSTICS_FETCH_MAP
+                && ("CONSTANT:SQLCODE".equalsIgnoreCase(row.sourceField())
+                || "CONSTANT:MESSAGE_TEXT".equalsIgnoreCase(row.sourceField())));
     }
 
     private static int relationshipBucketRank(com.example.db2lineage.model.RelationshipType relationship) {
@@ -237,6 +274,28 @@ public final class RowCollector {
                     draft.lineNo(),
                     draft.lineContent(),
                     draft.confidence()
+            );
+        }
+    }
+
+    private record NearbyDuplicateKey(
+            com.example.db2lineage.model.SourceObjectType sourceObjectType,
+            String sourceObject,
+            String sourceField,
+            com.example.db2lineage.model.TargetObjectType targetObjectType,
+            String targetObject,
+            String targetField,
+            com.example.db2lineage.model.RelationshipType relationship
+    ) {
+        private static NearbyDuplicateKey from(RowDraft draft) {
+            return new NearbyDuplicateKey(
+                    draft.sourceObjectType(),
+                    draft.sourceObject(),
+                    draft.sourceField(),
+                    draft.targetObjectType(),
+                    draft.targetObject(),
+                    draft.targetField(),
+                    draft.relationship()
             );
         }
     }
