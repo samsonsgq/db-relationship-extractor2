@@ -1633,9 +1633,32 @@ final class RoutineLineageSupport {
         String functionName = assignment.group(2).trim();
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         List<String> args = splitArgs(assignment.group(3));
+        collector.addDraft(parserLineDraft(
+                parsedStatement,
+                context,
+                "",
+                TargetObjectType.FUNCTION,
+                functionName,
+                "",
+                RelationshipType.CALL_FUNCTION,
+                lineNo,
+                line,
+                baseNaturalOrder
+        ));
         addParameterRows(parsedStatement, context, collector, lineNo, line, functionName, args, RelationshipType.FUNCTION_PARAM_MAP, baseNaturalOrder);
+        boolean hasFunctionExprMapOnLine = collector.drafts().stream().anyMatch(existing ->
+                existing.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && existing.lineNo() == lineNo
+                        && existing.targetObjectType() == TargetObjectType.VARIABLE
+                        && owningRoutine.equals(existing.targetObject())
+                        && targetVariable.equals(existing.targetField())
+                        && functionName.equals(existing.sourceField())
+        );
+        if (hasFunctionExprMapOnLine) {
+            return true;
+        }
         collector.addDraft(lineDraft(parsedStatement, context, functionName, TargetObjectType.VARIABLE, owningRoutine, targetVariable,
-                RelationshipType.FUNCTION_EXPR_MAP, lineNo, line, baseNaturalOrder + 100));
+                RelationshipType.FUNCTION_EXPR_MAP, lineNo, line, baseNaturalOrder + 1));
         return true;
     }
 
