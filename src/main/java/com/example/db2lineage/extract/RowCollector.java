@@ -31,7 +31,6 @@ public final class RowCollector {
         }
 
         List<RowDraft> filteredDrafts = suppressUnknownWhenResolvedExists(new ArrayList<>(deduplicated.values()));
-        filteredDrafts = suppressKnownFallbackDuplicates(filteredDrafts);
 
         Map<GroupKey, List<RowDraft>> grouped = new LinkedHashMap<>();
         for (RowDraft draft : filteredDrafts) {
@@ -96,52 +95,6 @@ public final class RowCollector {
             filtered.add(row);
         }
         return filtered;
-    }
-
-    private static List<RowDraft> suppressKnownFallbackDuplicates(List<RowDraft> rows) {
-        Map<FallbackDuplicateKey, RowDraft> winners = new LinkedHashMap<>();
-        for (RowDraft row : rows) {
-            FallbackDuplicateKey key = FallbackDuplicateKey.from(row);
-            if (key == null) {
-                continue;
-            }
-            RowDraft existing = winners.get(key);
-            if (existing == null || compareFallbackPreference(row, existing) < 0) {
-                winners.put(key, row);
-            }
-        }
-
-        if (winners.isEmpty()) {
-            return rows;
-        }
-
-        List<RowDraft> filtered = new ArrayList<>();
-        for (RowDraft row : rows) {
-            FallbackDuplicateKey key = FallbackDuplicateKey.from(row);
-            if (key == null || winners.get(key) == row) {
-                filtered.add(row);
-            }
-        }
-        return filtered;
-    }
-
-    private static int compareFallbackPreference(RowDraft candidate, RowDraft existing) {
-        int confidenceCompare = Integer.compare(confidenceRank(candidate), confidenceRank(existing));
-        if (confidenceCompare != 0) {
-            return confidenceCompare;
-        }
-        if (candidate.targetField().isBlank() != existing.targetField().isBlank()) {
-            return candidate.targetField().isBlank() ? 1 : -1;
-        }
-        return Integer.compare(candidate.lineNo(), existing.lineNo());
-    }
-
-    private static int confidenceRank(RowDraft draft) {
-        return switch (draft.confidence()) {
-            case PARSER -> 0;
-            case REGEX -> 1;
-            case DYNAMIC_LOW_CONFIDENCE -> 2;
-        };
     }
 
     private static int relationshipBucketRank(com.example.db2lineage.model.RelationshipType relationship) {
@@ -285,47 +238,6 @@ public final class RowCollector {
                     draft.lineContent(),
                     draft.confidence()
             );
-        }
-    }
-
-    private record FallbackDuplicateKey(
-            com.example.db2lineage.model.SourceObjectType sourceObjectType,
-            String sourceObject,
-            String sourceField,
-            com.example.db2lineage.model.TargetObjectType targetObjectType,
-            String targetObject,
-            String targetField,
-            com.example.db2lineage.model.RelationshipType relationship
-    ) {
-        private static FallbackDuplicateKey from(RowDraft draft) {
-            if (draft.relationship() == com.example.db2lineage.model.RelationshipType.CREATE_TABLE) {
-                return new FallbackDuplicateKey(
-                        draft.sourceObjectType(),
-                        draft.sourceObject(),
-                        draft.sourceField(),
-                        draft.targetObjectType(),
-                        draft.targetObject(),
-                        draft.targetField(),
-                        draft.relationship()
-                );
-            }
-            if (draft.relationship() == com.example.db2lineage.model.RelationshipType.EXCEPTION_HANDLER_MAP
-                    || (draft.relationship() == com.example.db2lineage.model.RelationshipType.DIAGNOSTICS_FETCH_MAP
-                    && ("CONSTANT:SQLCODE".equalsIgnoreCase(draft.sourceField())
-                    || "CONSTANT:MESSAGE_TEXT".equalsIgnoreCase(draft.sourceField())))) {
-                return new FallbackDuplicateKey(
-                        draft.sourceObjectType(),
-                        draft.sourceObject(),
-                        draft.sourceField(),
-                        draft.targetObjectType(),
-                        draft.targetObject(),
-                        draft.relationship() == com.example.db2lineage.model.RelationshipType.EXCEPTION_HANDLER_MAP
-                                ? ""
-                                : draft.targetField(),
-                        draft.relationship()
-                );
-            }
-            return null;
         }
     }
 }

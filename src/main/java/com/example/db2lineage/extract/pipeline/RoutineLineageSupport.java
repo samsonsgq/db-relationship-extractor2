@@ -67,7 +67,7 @@ final class RoutineLineageSupport {
     private static final Pattern GET_DIAGNOSTICS_PATTERN = Pattern.compile("(?i)^\\s*GET\\s+DIAGNOSTICS\\s+(?:(?:EXCEPTION|CONDITION)\\s+\\d+\\s+)?([A-Z0-9_.$]+)\\s*=\\s*([A-Z0-9_.$]+)\\s*;?\\s*$");
     private static final Pattern DIAGNOSTIC_TOKEN_ASSIGNMENT = Pattern.compile("(?i)^\\s*SET\\s+([A-Z0-9_.$]+)\\s*=\\s*(SQLSTATE|SQLCODE)\\s*;?\\s*$");
     private static final Pattern SPECIAL_REGISTER_ASSIGNMENT = Pattern.compile("(?i)^\\s*(?:SET\\s+)?([A-Z0-9_.$]+)\\s*=\\s*(CURRENT\\s+DATE|CURRENT\\s+TIMESTAMP|CURRENT\\s+USER|USER)\\s*;?\\s*$");
-    private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+(.+?)\\s*$");
+    private static final Pattern HANDLER_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+(?:CONTINUE|EXIT)\\s+HANDLER\\s+FOR\\s+(.+?)\\s*$");
     private static final Pattern DECLARE_GLOBAL_TEMPORARY_TABLE = Pattern.compile("(?i)^\\s*DECLARE\\s+GLOBAL\\s+TEMPORARY\\s+TABLE\\s+([A-Z0-9_.$\\\"]+).*");
     private static final Pattern DECLARE_VARIABLE_PATTERN = Pattern.compile("(?i)^\\s*DECLARE\\s+[A-Z0-9_.$]+\\s+.+$");
     private static final Pattern DECLARE_VARIABLE_WITH_OPTIONAL_DEFAULT =
@@ -1619,8 +1619,7 @@ final class RoutineLineageSupport {
             return false;
         }
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
-        String handlerAction = handler.group(1).trim().toUpperCase(Locale.ROOT);
-        String condition = handler.group(2).trim();
+        String condition = handler.group(1).trim();
         condition = condition.replaceAll("(?i)\\s+SET\\b.*$", "");
         condition = condition.replaceAll("(?i)\\s+BEGIN\\b.*$", "");
         condition = condition.replaceAll(";$", "");
@@ -1632,7 +1631,7 @@ final class RoutineLineageSupport {
                         ? TargetObjectType.FUNCTION
                         : TargetObjectType.PROCEDURE,
                 owningRoutine,
-                handlerAction,
+                "",
                 RelationshipType.EXCEPTION_HANDLER_MAP,
                 lineNo,
                 line,
