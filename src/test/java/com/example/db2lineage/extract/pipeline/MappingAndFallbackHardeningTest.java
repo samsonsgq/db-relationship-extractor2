@@ -207,6 +207,69 @@ class MappingAndFallbackHardeningTest {
                 && r.lineNo() == 4
                 && "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();".equals(r.lineContent())));
         assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equals(r.targetObject()))
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_END_DATE".equals(r.targetObject()))
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "ld_actual_month_begin_date".equals(r.targetField())
+                        && r.lineNo() == 3)
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "ld_actual_month_end_date".equals(r.targetField())
+                        && r.lineNo() == 4)
+                .count());
+    }
+
+    @Test
+    void functionAssignmentsRemainSingleAndCorrectWhenTwoSetStatementsShareOneRawSegment() {
+        SqlSourceFile sourceFile = sqlFile("fn_assign_compound_segment.sql", List.of(
+                "CREATE PROCEDURE RPT.PR_TEST_DEMO()",
+                "BEGIN",
+                "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();",
+                "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();",
+                "END"
+        ), SqlSourceCategory.SP_DIR);
+
+        StatementSlice segmentedSlice = new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                String.join("\n", sourceFile.rawLines()),
+                1,
+                sourceFile.rawLines().size(),
+                List.of(
+                        "CREATE PROCEDURE RPT.PR_TEST_DEMO()\nBEGIN",
+                        "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();\n"
+                                + "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();",
+                        "END"
+                ),
+                0
+        );
+        ParsedStatementResult parsed = new SqlStatementParser().parse(segmentedSlice);
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equals(r.targetObject())
+                        && r.lineNo() == 3
+                        && "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();".equals(r.lineContent()))
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_END_DATE".equals(r.targetObject())
+                        && r.lineNo() == 4
+                        && "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();".equals(r.lineContent()))
+                .count());
+        assertEquals(1, rows.stream()
                 .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
                         && "ld_actual_month_begin_date".equals(r.targetField())
                         && r.lineNo() == 3)

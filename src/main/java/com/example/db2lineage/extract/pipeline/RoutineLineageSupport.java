@@ -183,59 +183,68 @@ final class RoutineLineageSupport {
         List<String> statementLines = new ArrayList<>();
         int statementStart = -1;
         List<String> raw = parsedStatement.slice().rawLines();
+        int absoluteLineNo = parsedStatement.slice().startLine();
+        for (int i = 0; i < bodyStartIdx && i < raw.size(); i++) {
+            absoluteLineNo += raw.get(i).split("\\R", -1).length;
+        }
         for (int i = bodyStartIdx; i <= bodyEndIdx && i < raw.size(); i++) {
-            String line = raw.get(i);
-            if (statementStart < 0 && !line.trim().isEmpty() && !line.trim().startsWith("--")) {
-                statementStart = parsedStatement.slice().startLine() + i;
-            }
-            statement.append(line).append('\n');
-            statementLines.add(line);
-            if (!line.trim().endsWith(";")) {
-                continue;
-            }
-            int statementEnd = parsedStatement.slice().startLine() + i;
-            String text = statement.toString().trim();
-            if (!text.isEmpty()) {
-                if (shouldSkipStatementLevelProceduralExtraction(text)) {
-                    statement.setLength(0);
-                    statementLines = new ArrayList<>();
-                    statementStart = -1;
+            String[] physicalLines = raw.get(i).split("\\R", -1);
+            for (int j = 0; j < physicalLines.length; j++) {
+                String line = physicalLines[j];
+                int lineNo = absoluteLineNo + j;
+                if (statementStart < 0 && !line.trim().isEmpty() && !line.trim().startsWith("--")) {
+                    statementStart = lineNo;
+                }
+                statement.append(line).append('\n');
+                statementLines.add(line);
+                if (!line.trim().endsWith(";")) {
                     continue;
                 }
-                extractSetAssignment(
-                        text,
-                        ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                        parsedStatement,
-                        context,
-                        collector,
-                        baseOrder + i + 500,
-                        statementStart,
-                        statementEnd
-                );
-                extractCallStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 1000);
-                extractFetchStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 2000);
-                extractTableLevelRowsFromProceduralStatement(
-                        text,
-                        statementStart,
-                        statementEnd,
-                        parsedStatement,
-                        context,
-                        collector,
-                        baseOrder + i + 3000
-                );
-                extractPredicateRelationshipsFromStatement(
-                        text,
-                        statementLines,
-                        statementStart,
-                        statementEnd,
-                        parsedStatement,
-                        context,
-                        collector
-                );
+                int statementEnd = lineNo;
+                String text = statement.toString().trim();
+                if (!text.isEmpty()) {
+                    if (shouldSkipStatementLevelProceduralExtraction(text)) {
+                        statement.setLength(0);
+                        statementLines = new ArrayList<>();
+                        statementStart = -1;
+                        continue;
+                    }
+                    extractSetAssignment(
+                            text,
+                            ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                            parsedStatement,
+                            context,
+                            collector,
+                            baseOrder + i + 500,
+                            statementStart,
+                            statementEnd
+                    );
+                    extractCallStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 1000);
+                    extractFetchStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 2000);
+                    extractTableLevelRowsFromProceduralStatement(
+                            text,
+                            statementStart,
+                            statementEnd,
+                            parsedStatement,
+                            context,
+                            collector,
+                            baseOrder + i + 3000
+                    );
+                    extractPredicateRelationshipsFromStatement(
+                            text,
+                            statementLines,
+                            statementStart,
+                            statementEnd,
+                            parsedStatement,
+                            context,
+                            collector
+                    );
+                }
+                statement.setLength(0);
+                statementLines = new ArrayList<>();
+                statementStart = -1;
             }
-            statement.setLength(0);
-            statementLines = new ArrayList<>();
-            statementStart = -1;
+            absoluteLineNo += physicalLines.length;
         }
     }
 
