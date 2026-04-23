@@ -2484,7 +2484,18 @@ final class RoutineLineageSupport {
         if (caseExpression.getElseExpression() != null) {
             collectExpressionWithProgress(caseExpression.getElseExpression(), slice, searchLine, tokens);
         }
-        return List.copyOf(tokens);
+        List<ExpressionTokenSupport.TokenUse> deduped = new ArrayList<>();
+        Set<String> seen = new LinkedHashSet<>();
+        for (ExpressionTokenSupport.TokenUse tokenUse : tokens) {
+            if (tokenUse == null || tokenUse.token() == null || tokenUse.token().isBlank()) {
+                continue;
+            }
+            String key = tokenUse.token() + "|" + tokenUse.lineNo();
+            if (seen.add(key)) {
+                deduped.add(tokenUse);
+            }
+        }
+        return List.copyOf(deduped);
     }
 
     private static int collectExpressionWithProgress(Expression expression,
