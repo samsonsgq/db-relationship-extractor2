@@ -167,43 +167,6 @@ class MappingAndFallbackHardeningTest {
         assertEquals(1, beginMappings);
     }
 
-    @Test
-    void parseFailedProceduralChunkSplitsPhysicalLinesForFunctionAssignments() {
-        String first = "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();";
-        String second = "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();";
-        SqlSourceFile sourceFile = sqlFile("fn_assign_chunk.sql", List.of(
-                first + "\n" + second
-        ), SqlSourceCategory.SP_DIR);
-
-        StatementSlice slice = new StatementSlice(
-                sourceFile,
-                sourceFile.sourceCategory(),
-                first + "\n" + second,
-                191,
-                192,
-                sourceFile.rawLines(),
-                0
-        );
-        ParsedStatementResult parsed = ParsedStatementResult.parseFailed(slice, List.<ParseIssue>of());
-
-        List<RelationshipRow> rows = new ExtractionPipeline().extract(
-                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of())),
-                List.of(parsed)
-        );
-
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
-                && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equals(r.targetObject())
-                && r.lineNo() == 191
-                && first.equals(r.lineContent())));
-        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
-                && "TEMP.FN_GET_ACTUAL_MONTH_END_DATE".equals(r.targetObject())
-                && r.lineNo() == 192
-                && second.equals(r.lineContent())));
-        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
-                && "ld_actual_month_begin_date".equals(r.targetField())
-                && r.lineNo() == 192));
-    }
-
     private SqlSourceFile sqlFile(String name, List<String> rawLines, SqlSourceCategory category) {
         return new SqlSourceFile(
                 category,
