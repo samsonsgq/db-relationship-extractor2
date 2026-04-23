@@ -8,6 +8,7 @@ import com.example.db2lineage.model.RowDraft;
 import com.example.db2lineage.model.TargetObjectType;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import net.sf.jsqlparser.expression.Expression;
+import net.sf.jsqlparser.parser.CCJSqlParserUtil;
 import net.sf.jsqlparser.schema.Column;
 import net.sf.jsqlparser.schema.Table;
 import net.sf.jsqlparser.statement.select.GroupByElement;
@@ -25,6 +26,9 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.ArrayList;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public final class SelectStatementExtractor implements StatementExtractor {
     @Override
@@ -36,6 +40,7 @@ public final class SelectStatementExtractor implements StatementExtractor {
     public void extract(ParsedStatementResult parsedStatement, ExtractionContext context, RowCollector collector) {
         Select select = (Select) parsedStatement.statement().orElseThrow();
         int naturalOrder = 0;
+        boolean selectIntoStatement = parsedStatement.slice().statementText().toUpperCase(Locale.ROOT).contains(" INTO ");
         List<String> cteNames = ObjectRelationshipSupport.collectCteNames(select);
         Set<String> cteNamesUpper = new HashSet<>();
 
@@ -46,21 +51,23 @@ public final class SelectStatementExtractor implements StatementExtractor {
             ));
         }
 
-        for (ObjectRelationshipSupport.TableRef ref : ObjectRelationshipSupport.collectSelectReadObjects(select)) {
-            RelationshipType relationship = RelationshipType.SELECT_TABLE;
-            TargetObjectType targetType = context.schemaMetadataService()
-                    .resolveObjectType(ref.objectName())
-                    .orElse(ref.targetType());
-            if (targetType == TargetObjectType.VIEW) {
-                relationship = RelationshipType.SELECT_VIEW;
+        if (!selectIntoStatement) {
+            for (ObjectRelationshipSupport.TableRef ref : ObjectRelationshipSupport.collectSelectReadObjects(select)) {
+                RelationshipType relationship = RelationshipType.SELECT_TABLE;
+                TargetObjectType targetType = context.schemaMetadataService()
+                        .resolveObjectType(ref.objectName())
+                        .orElse(ref.targetType());
+                if (targetType == TargetObjectType.VIEW) {
+                    relationship = RelationshipType.SELECT_VIEW;
+                }
+                if (cteNamesUpper.contains(ref.objectName().toUpperCase())) {
+                    relationship = RelationshipType.CTE_READ;
+                    targetType = TargetObjectType.CTE;
+                }
+                collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
+                        context, parsedStatement, relationship, targetType, ref.objectName(), naturalOrder++
+                ));
             }
-            if (cteNamesUpper.contains(ref.objectName().toUpperCase())) {
-                relationship = RelationshipType.CTE_READ;
-                targetType = TargetObjectType.CTE;
-            }
-            collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
-                    context, parsedStatement, relationship, targetType, ref.objectName(), naturalOrder++
-            ));
         }
 
         if (select instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
@@ -86,7 +93,90 @@ public final class SelectStatementExtractor implements StatementExtractor {
                 }
             }
         }
+        if (selectIntoStatement) {
+            emitSelectIntoVariableMappings(parsedStatement, context, collector, naturalOrder);
+        }
 
+    }
+
+    private void emitSelectIntoVariableMappings(ParsedStatementResult parsedStatement,
+                                                ExtractionContext context,
+                                                RowCollector collector,
+                                                int naturalOrder) {
+        String text = parsedStatement.slice().statementText();
+        Matcher m = Pattern.compile("(?is)^\\s*SELECT\\s+(.+?)\\s+INTO\\s+(.+?)\\s+FROM\\s+.+$").matcher(text);
+        if (!m.find()) {
+            return;
+        }
+        List<String> sourceExprs = splitArgs(m.group(1));
+        List<String> targetVars = splitArgs(m.group(2));
+        int count = Math.min(sourceExprs.size(), targetVars.size());
+        String routineName = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
+        for (int i = 0; i < count; i++) {
+            String sourceExpr = sourceExprs.get(i).trim();
+            String targetVar = targetVars.get(i).trim();
+            if (sourceExpr.isBlank() || targetVar.isBlank()) {
+                continue;
+            }
+            String sourceToken = sourceExpr;
+            try {
+                Expression expr = CCJSqlParserUtil.parseExpression(sourceExpr);
+                if (expr instanceof Column col && col.getColumnName() != null && !col.getColumnName().isBlank()) {
+                    sourceToken = col.getColumnName();
+                }
+            } catch (Exception ignored) {
+                // Keep original token.
+            }
+            LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), sourceExpr, naturalOrder + i);
+            collector.addDraft(new RowDraft(
+                    ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                    sourceToken,
+                    TargetObjectType.VARIABLE,
+                    routineName,
+                    targetVar,
+                    RelationshipType.VARIABLE_SET_MAP,
+                    anchor.lineNo(),
+                    anchor.lineContent(),
+                    ConfidenceLevel.PARSER,
+                    ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                    naturalOrder + i
+            ));
+        }
+    }
+
+    private static List<String> splitArgs(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return List.of();
+        }
+        List<String> args = new ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        int depth = 0;
+        boolean inQuote = false;
+        for (int i = 0; i < raw.length(); i++) {
+            char c = raw.charAt(i);
+            if (c == '\'' && (i + 1 >= raw.length() || raw.charAt(i + 1) != '\'')) {
+                inQuote = !inQuote;
+                current.append(c);
+                continue;
+            }
+            if (!inQuote) {
+                if (c == '(') {
+                    depth++;
+                } else if (c == ')' && depth > 0) {
+                    depth--;
+                } else if (c == ',' && depth == 0) {
+                    args.add(current.toString().trim());
+                    current.setLength(0);
+                    continue;
+                }
+            }
+            current.append(c);
+        }
+        if (!current.isEmpty()) {
+            args.add(current.toString().trim());
+        }
+        return args;
     }
 
     private int extractFieldUsageFromPlainSelect(ParsedStatementResult parsedStatement,

@@ -40,17 +40,15 @@ public final class RowCollector {
 
         List<RelationshipRow> finalized = new ArrayList<>();
         for (List<RowDraft> groupRows : grouped.values()) {
-            groupRows.sort(Comparator
-                    .comparingInt(RowDraft::statementOrder)
-                    .thenComparingInt(draft -> relationshipBucketRank(draft.relationship()))
+            groupRows.sort(Comparator.<RowDraft>comparingInt(draft -> relationshipBucketRank(draft.relationship()))
+                    .thenComparingInt(RowDraft::statementOrder)
                     .thenComparingInt(RowDraft::naturalOrderOnLine)
                     .thenComparingInt(draft -> relationshipFamilyRank(draft.relationship()))
                     .thenComparing(RowDraft::targetObjectType)
                     .thenComparing(RowDraft::targetObject)
                     .thenComparing(RowDraft::targetField)
                     .thenComparing(RowDraft::sourceField)
-                    .thenComparing(RowDraft::lineContent)
-            );
+                    .thenComparing(RowDraft::lineContent));
 
             for (int i = 0; i < groupRows.size(); i++) {
                 RowDraft draft = groupRows.get(i);
