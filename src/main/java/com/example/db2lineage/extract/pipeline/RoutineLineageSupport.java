@@ -155,9 +155,15 @@ final class RoutineLineageSupport {
         }
         int baseOrder = 500_000;
         for (int i = bodyStartIdx; i <= bodyEndIdx; i++) {
-            String line = parsedStatement.slice().rawLines().get(i);
-            int lineNo = parsedStatement.slice().startLine() + i;
-            extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100);
+            String rawLine = parsedStatement.slice().rawLines().get(i);
+            String[] physicalLines = rawLine.split("\\R", -1);
+            int lineOrderOffset = 0;
+            for (int physicalOffset = 0; physicalOffset < physicalLines.length; physicalOffset++) {
+                String line = physicalLines[physicalOffset];
+                int lineNo = parsedStatement.slice().startLine() + i + physicalOffset;
+                extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100 + lineOrderOffset);
+                lineOrderOffset += 10;
+            }
         }
         extractStatementLevelProceduralMappings(parsedStatement, context, collector, baseOrder + 10_000_000, bodyStartIdx, bodyEndIdx);
     }
@@ -1626,17 +1632,79 @@ final class RoutineLineageSupport {
     private static boolean extractFunctionAssignment(String line, int lineNo, ParsedStatementResult parsedStatement,
                                                      ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
         Matcher assignment = FUNCTION_CALL_ASSIGNMENT.matcher(line);
-        if (!assignment.find()) {
+        if (!assignment.matches()) {
             return false;
         }
+        int anchoredLineNo = resolveExactPhysicalLineNo(parsedStatement.slice(), line, lineNo);
+        String anchoredLine = safeRawLine(parsedStatement.slice(), anchoredLineNo, line);
         String targetVariable = assignment.group(1).trim();
         String functionName = assignment.group(2).trim();
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         List<String> args = splitArgs(assignment.group(3));
-        addParameterRows(parsedStatement, context, collector, lineNo, line, functionName, args, RelationshipType.FUNCTION_PARAM_MAP, baseNaturalOrder);
+        boolean hasCallFunctionOnLine = collector.drafts().stream().anyMatch(existing ->
+                existing.relationship() == RelationshipType.CALL_FUNCTION
+                        && existing.lineNo() == anchoredLineNo
+                        && existing.targetObjectType() == TargetObjectType.FUNCTION
+                        && functionName.equals(existing.targetObject())
+        );
+        if (!hasCallFunctionOnLine) {
+            collector.addDraft(parserLineDraft(
+                    parsedStatement,
+                    context,
+                    "",
+                    TargetObjectType.FUNCTION,
+                    functionName,
+                    "",
+                    RelationshipType.CALL_FUNCTION,
+                    anchoredLineNo,
+                    anchoredLine,
+                    baseNaturalOrder
+            ));
+        }
+        addParameterRows(parsedStatement, context, collector, anchoredLineNo, anchoredLine, functionName, args, RelationshipType.FUNCTION_PARAM_MAP, baseNaturalOrder);
+        boolean hasFunctionExprMapOnLine = collector.drafts().stream().anyMatch(existing ->
+                existing.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && existing.lineNo() == anchoredLineNo
+                        && existing.targetObjectType() == TargetObjectType.VARIABLE
+                        && owningRoutine.equals(existing.targetObject())
+                        && targetVariable.equals(existing.targetField())
+                        && functionName.equals(existing.sourceField())
+        );
+        if (hasFunctionExprMapOnLine) {
+            return true;
+        }
         collector.addDraft(lineDraft(parsedStatement, context, functionName, TargetObjectType.VARIABLE, owningRoutine, targetVariable,
-                RelationshipType.FUNCTION_EXPR_MAP, lineNo, line, baseNaturalOrder + 100));
+                RelationshipType.FUNCTION_EXPR_MAP, anchoredLineNo, anchoredLine, baseNaturalOrder + 1));
         return true;
+    }
+
+    private static int resolveExactPhysicalLineNo(StatementSlice slice, String line, int fallbackLineNo) {
+        if (line == null) {
+            return fallbackLineNo;
+        }
+        int availableLines = slice.sourceFile().rawLines().size();
+        if (availableLines <= 0) {
+            return fallbackLineNo;
+        }
+        int start = Math.max(1, Math.min(slice.startLine(), availableLines));
+        int end = Math.max(start, Math.min(slice.endLine(), availableLines));
+        for (int candidate = start; candidate <= end; candidate++) {
+            if (line.equals(slice.sourceFile().getRawLine(candidate))) {
+                return candidate;
+            }
+        }
+        if (fallbackLineNo >= 1 && fallbackLineNo <= availableLines) {
+            return fallbackLineNo;
+        }
+        return start;
+    }
+
+    private static String safeRawLine(StatementSlice slice, int lineNo, String fallbackLine) {
+        int availableLines = slice.sourceFile().rawLines().size();
+        if (lineNo >= 1 && lineNo <= availableLines) {
+            return slice.sourceFile().getRawLine(lineNo);
+        }
+        return fallbackLine;
     }
 
     private static void addParameterRows(ParsedStatementResult parsedStatement,

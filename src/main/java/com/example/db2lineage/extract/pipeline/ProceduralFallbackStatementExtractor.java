@@ -25,10 +25,16 @@ public final class ProceduralFallbackStatementExtractor implements StatementExtr
         int baseOrder = 0;
         boolean foundRoutineLineage = false;
         for (int i = 0; i < parsedStatement.slice().rawLines().size(); i++) {
-            String line = parsedStatement.slice().rawLines().get(i);
-            int lineNo = parsedStatement.slice().startLine() + i;
-            if (RoutineLineageSupport.extractLine(line, lineNo, parsedStatement, context, collector, baseOrder)) {
-                foundRoutineLineage = true;
+            String rawLine = parsedStatement.slice().rawLines().get(i);
+            String[] physicalLines = rawLine.split("\\R", -1);
+            int lineOrderOffset = 0;
+            for (int physicalOffset = 0; physicalOffset < physicalLines.length; physicalOffset++) {
+                String line = physicalLines[physicalOffset];
+                int lineNo = parsedStatement.slice().startLine() + i + physicalOffset;
+                if (RoutineLineageSupport.extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + lineOrderOffset)) {
+                    foundRoutineLineage = true;
+                }
+                lineOrderOffset += 10;
             }
             baseOrder += 100;
         }

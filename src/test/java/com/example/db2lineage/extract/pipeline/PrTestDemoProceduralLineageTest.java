@@ -79,6 +79,35 @@ class PrTestDemoProceduralLineageTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP
                 && r.lineNo() == 170
                 && "$4".equalsIgnoreCase(r.targetField().trim())));
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.targetObject())
+                        && r.lineNo() == 191
+                        && "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();".equals(r.lineContent()))
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_END_DATE".equalsIgnoreCase(r.targetObject())
+                        && r.lineNo() == 192
+                        && "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();".equals(r.lineContent()))
+                .count());
+        assertEquals(0, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.targetObject())
+                        && r.lineNo() == 192)
+                .count());
+        assertEquals(1, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.sourceField())
+                        && "ld_actual_month_begin_date".equalsIgnoreCase(r.targetField())
+                        && r.lineNo() == 191)
+                .count());
+        assertEquals(0, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.sourceField())
+                        && "ld_actual_month_begin_date".equalsIgnoreCase(r.targetField())
+                        && r.lineNo() == 192)
+                .count());
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_PARAM_MAP
                 && r.lineNo() == 117
                 && "$1 ".equals(r.targetField())));
