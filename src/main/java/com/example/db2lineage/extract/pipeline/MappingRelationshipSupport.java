@@ -375,6 +375,7 @@ final class MappingRelationshipSupport {
             return token;
         }
         if (relationship != RelationshipType.INSERT_SELECT_MAP
+                && relationship != RelationshipType.UPDATE_SET_MAP
                 || ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice())
                 != com.example.db2lineage.model.SourceObjectType.PROCEDURE) {
             return token;
