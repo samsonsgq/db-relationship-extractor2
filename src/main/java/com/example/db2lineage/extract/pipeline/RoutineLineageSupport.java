@@ -256,10 +256,6 @@ final class RoutineLineageSupport {
         if (normalized.isEmpty()) {
             return;
         }
-        if (normalized.toUpperCase(Locale.ROOT).startsWith("SELECT ")
-                && normalized.toUpperCase(Locale.ROOT).contains(" INTO ")) {
-            return;
-        }
         Matcher declareCursorFor = Pattern.compile("(?is)^\\s*DECLARE\\s+[A-Z0-9_.$]+\\s+CURSOR\\s+FOR\\s+(.+?)\\s*;?\\s*$").matcher(normalized);
         if (declareCursorFor.find()) {
             normalized = declareCursorFor.group(1).trim();
