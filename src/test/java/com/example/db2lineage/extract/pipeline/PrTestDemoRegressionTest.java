@@ -163,10 +163,8 @@ class PrTestDemoRegressionTest {
                         && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject())
                         && "EVENT_CLASS".equalsIgnoreCase(r.targetField()))
                 .count());
-        assertEquals(2, line287.stream()
-                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
-                        && "COALESCE".equalsIgnoreCase(r.sourceField())
-                        && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject()))
+        assertEquals(0, line287.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP)
                 .count());
     }
 }

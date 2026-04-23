@@ -121,7 +121,9 @@ final class MappingRelationshipSupport {
                     naturalOrder + tokenUse.orderOnLine()
             ));
         }
-        addFunctionExpressionRows(targetObject, targetType, targetField, expression, parsedStatement, context, collector, naturalOrder + 10_000);
+        if (mappingRelationship != RelationshipType.INSERT_SELECT_MAP) {
+            addFunctionExpressionRows(targetObject, targetType, targetField, expression, parsedStatement, context, collector, naturalOrder + 10_000);
+        }
     }
 
     private static RelationshipType strongestDirectMappingRelationship(RelationshipType mappingRelationship,
