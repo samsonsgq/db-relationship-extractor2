@@ -155,9 +155,15 @@ final class RoutineLineageSupport {
         }
         int baseOrder = 500_000;
         for (int i = bodyStartIdx; i <= bodyEndIdx; i++) {
-            String line = parsedStatement.slice().rawLines().get(i);
-            int lineNo = parsedStatement.slice().startLine() + i;
-            extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100);
+            String rawLine = parsedStatement.slice().rawLines().get(i);
+            String[] physicalLines = rawLine.split("\\R", -1);
+            int lineOrderOffset = 0;
+            for (int physicalOffset = 0; physicalOffset < physicalLines.length; physicalOffset++) {
+                String line = physicalLines[physicalOffset];
+                int lineNo = parsedStatement.slice().startLine() + i + physicalOffset;
+                extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100 + lineOrderOffset);
+                lineOrderOffset += 10;
+            }
         }
         extractStatementLevelProceduralMappings(parsedStatement, context, collector, baseOrder + 10_000_000, bodyStartIdx, bodyEndIdx);
     }
@@ -1626,16 +1632,39 @@ final class RoutineLineageSupport {
     private static boolean extractFunctionAssignment(String line, int lineNo, ParsedStatementResult parsedStatement,
                                                      ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
         Matcher assignment = FUNCTION_CALL_ASSIGNMENT.matcher(line);
-        if (!assignment.find()) {
+        if (!assignment.matches()) {
             return false;
         }
         String targetVariable = assignment.group(1).trim();
         String functionName = assignment.group(2).trim();
         String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
         List<String> args = splitArgs(assignment.group(3));
+        collector.addDraft(parserLineDraft(
+                parsedStatement,
+                context,
+                "",
+                TargetObjectType.FUNCTION,
+                functionName,
+                "",
+                RelationshipType.CALL_FUNCTION,
+                lineNo,
+                line,
+                baseNaturalOrder
+        ));
         addParameterRows(parsedStatement, context, collector, lineNo, line, functionName, args, RelationshipType.FUNCTION_PARAM_MAP, baseNaturalOrder);
+        boolean hasFunctionExprMapOnLine = collector.drafts().stream().anyMatch(existing ->
+                existing.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && existing.lineNo() == lineNo
+                        && existing.targetObjectType() == TargetObjectType.VARIABLE
+                        && owningRoutine.equals(existing.targetObject())
+                        && targetVariable.equals(existing.targetField())
+                        && functionName.equals(existing.sourceField())
+        );
+        if (hasFunctionExprMapOnLine) {
+            return true;
+        }
         collector.addDraft(lineDraft(parsedStatement, context, functionName, TargetObjectType.VARIABLE, owningRoutine, targetVariable,
-                RelationshipType.FUNCTION_EXPR_MAP, lineNo, line, baseNaturalOrder + 100));
+                RelationshipType.FUNCTION_EXPR_MAP, lineNo, line, baseNaturalOrder + 1));
         return true;
     }
 

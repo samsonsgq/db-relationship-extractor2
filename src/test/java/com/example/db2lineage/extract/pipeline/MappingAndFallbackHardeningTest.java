@@ -4,6 +4,7 @@ import com.example.db2lineage.extract.ExtractionContext;
 import com.example.db2lineage.model.ConfidenceLevel;
 import com.example.db2lineage.model.RelationshipRow;
 import com.example.db2lineage.model.RelationshipType;
+import com.example.db2lineage.parse.ParseIssue;
 import com.example.db2lineage.parse.ParsedStatementResult;
 import com.example.db2lineage.parse.SqlSourceCategory;
 import com.example.db2lineage.parse.SqlSourceFile;
@@ -122,6 +123,85 @@ class MappingAndFallbackHardeningTest {
         RelationshipRow row = rows.get(0);
         assertEquals(RelationshipType.DYNAMIC_SQL_EXEC, row.relationship());
         assertEquals("V_SQL || ' WHERE X = 1'", row.sourceField());
+    }
+
+    @Test
+    void functionAssignmentEmitsCallFunctionAndAnchorsRowsToExactLine() {
+        SqlSourceFile sourceFile = sqlFile("fn_assign.sql", List.of(
+                "CREATE PROCEDURE RPT.PR_TEST_DEMO()",
+                "BEGIN",
+                "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();",
+                "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();",
+                "END"
+        ), SqlSourceCategory.SP_DIR);
+
+        SqlStatementParser parser = new SqlStatementParser();
+        ParsedStatementResult parsed = parser.parse(new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                String.join("\n", sourceFile.rawLines()),
+                1,
+                sourceFile.rawLines().size(),
+                sourceFile.rawLines(),
+                0
+        ));
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of(parsed))),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equals(r.targetObject())
+                && r.lineNo() == 3
+                && "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();".equals(r.lineContent())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                && "TEMP.FN_GET_ACTUAL_MONTH_END_DATE".equals(r.targetObject())
+                && r.lineNo() == 4
+                && "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();".equals(r.lineContent())));
+
+        long beginMappings = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                        && "ld_actual_month_begin_date".equals(r.targetField()))
+                .count();
+        assertEquals(1, beginMappings);
+    }
+
+    @Test
+    void parseFailedProceduralChunkSplitsPhysicalLinesForFunctionAssignments() {
+        String first = "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();";
+        String second = "    SET ld_actual_month_end_date   = TEMP.FN_GET_ACTUAL_MONTH_END_DATE();";
+        SqlSourceFile sourceFile = sqlFile("fn_assign_chunk.sql", List.of(
+                first + "\n" + second
+        ), SqlSourceCategory.SP_DIR);
+
+        StatementSlice slice = new StatementSlice(
+                sourceFile,
+                sourceFile.sourceCategory(),
+                first + "\n" + second,
+                191,
+                192,
+                sourceFile.rawLines(),
+                0
+        );
+        ParsedStatementResult parsed = ParsedStatementResult.parseFailed(slice, List.<ParseIssue>of());
+
+        List<RelationshipRow> rows = new ExtractionPipeline().extract(
+                new ExtractionContext(List.of(sourceFile), InMemorySchemaMetadataService.fromParsedStatements(List.of())),
+                List.of(parsed)
+        );
+
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equals(r.targetObject())
+                && r.lineNo() == 191
+                && first.equals(r.lineContent())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CALL_FUNCTION
+                && "TEMP.FN_GET_ACTUAL_MONTH_END_DATE".equals(r.targetObject())
+                && r.lineNo() == 192
+                && second.equals(r.lineContent())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP
+                && "ld_actual_month_begin_date".equals(r.targetField())
+                && r.lineNo() == 192));
     }
 
     private SqlSourceFile sqlFile(String name, List<String> rawLines, SqlSourceCategory category) {
