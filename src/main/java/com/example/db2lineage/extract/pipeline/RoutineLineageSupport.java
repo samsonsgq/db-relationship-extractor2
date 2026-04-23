@@ -154,16 +154,21 @@ final class RoutineLineageSupport {
             }
         }
         int baseOrder = 500_000;
+        int absoluteLineNo = parsedStatement.slice().startLine();
+        for (int i = 0; i < bodyStartIdx && i < parsedStatement.slice().rawLines().size(); i++) {
+            absoluteLineNo += parsedStatement.slice().rawLines().get(i).split("\\R", -1).length;
+        }
         for (int i = bodyStartIdx; i <= bodyEndIdx; i++) {
             String rawLine = parsedStatement.slice().rawLines().get(i);
             String[] physicalLines = rawLine.split("\\R", -1);
             int lineOrderOffset = 0;
             for (int physicalOffset = 0; physicalOffset < physicalLines.length; physicalOffset++) {
                 String line = physicalLines[physicalOffset];
-                int lineNo = parsedStatement.slice().startLine() + i + physicalOffset;
+                int lineNo = absoluteLineNo + physicalOffset;
                 extractLine(line, lineNo, parsedStatement, context, collector, baseOrder + i * 100 + lineOrderOffset);
                 lineOrderOffset += 10;
             }
+            absoluteLineNo += physicalLines.length;
         }
         extractStatementLevelProceduralMappings(parsedStatement, context, collector, baseOrder + 10_000_000, bodyStartIdx, bodyEndIdx);
     }
