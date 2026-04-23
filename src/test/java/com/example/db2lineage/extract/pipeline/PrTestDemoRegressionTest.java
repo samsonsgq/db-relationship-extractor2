@@ -19,6 +19,7 @@ import java.util.List;
 import java.util.Comparator;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class PrTestDemoRegressionTest {
@@ -128,5 +129,24 @@ class PrTestDemoRegressionTest {
                 && "TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE".equalsIgnoreCase(r.targetObject())
                 && r.lineNo() == 192
                 && "    SET ld_actual_month_begin_date = TEMP.FN_GET_ACTUAL_MONTH_BEGIN_DATE();".equals(r.lineContent())));
+
+        List<RelationshipRow> line196 = rows.stream()
+                .filter(r -> r.lineNo() == 196)
+                .sorted(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                .toList();
+        assertTrue(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && "lv_month_flag".equalsIgnoreCase(r.sourceField())));
+        assertTrue(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && "CONSTANT:'E'".equalsIgnoreCase(r.sourceField())
+                && r.targetObjectType() == TargetObjectType.UNKNOWN
+                && "UNKNOWN_SELECT_EXPR".equalsIgnoreCase(r.targetObject())));
+        assertTrue(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && "ld_actual_month_end_date".equalsIgnoreCase(r.sourceField())
+                && "ld_end_date".equalsIgnoreCase(r.targetField())));
+        assertFalse(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && "lv_month_flag".equalsIgnoreCase(r.sourceField())));
+        assertFalse(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && "CONSTANT:'E'".equalsIgnoreCase(r.sourceField())));
+        assertFalse(line196.stream().anyMatch(r -> r.relationship() == RelationshipType.CONTROL_FLOW_CONDITION));
     }
 }
