@@ -223,6 +223,8 @@ final class RoutineLineageSupport {
                             statementStart,
                             statementEnd
                     );
+                    extractDeclareCursorStatement(text, statementStart, statementEnd, parsedStatement, context, collector,
+                            baseOrder + i + 900);
                     extractCallStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 1000);
                     extractFetchStatement(text, statementStart, statementEnd, parsedStatement, context, collector, baseOrder + i + 2000);
                     extractTableLevelRowsFromProceduralStatement(
@@ -1815,6 +1817,32 @@ final class RoutineLineageSupport {
         return true;
     }
 
+    private static boolean extractDeclareCursorStatement(String statementText,
+                                                         int startLine,
+                                                         int endLine,
+                                                         ParsedStatementResult parsedStatement,
+                                                         ExtractionContext context,
+                                                         RowCollector collector,
+                                                         int baseOrder) {
+        String normalized = statementText.replaceAll("(?m)^\\s*--.*$", "").trim();
+        Matcher declare = Pattern.compile("(?is)^\\s*DECLARE\\s+([A-Z0-9_.$]+)\\s+CURSOR\\s+FOR\\s+(.+?)\\s*;\\s*$").matcher(normalized);
+        if (!declare.find()) {
+            return false;
+        }
+        String cursor = declare.group(1).trim();
+        String selectBody = declare.group(2).trim();
+        int declareLineNo = findLineInRange(parsedStatement.slice(), "DECLARE " + cursor, startLine, endLine);
+        String declareLine = parsedStatement.slice().sourceFile().getRawLine(declareLineNo);
+        if (isValidCursorSelectByParser(selectBody)) {
+            collector.addDraft(parserLineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
+                    RelationshipType.CURSOR_DEFINE, declareLineNo, declareLine, baseOrder));
+        } else {
+            collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
+                    RelationshipType.CURSOR_DEFINE, declareLineNo, declareLine, baseOrder));
+        }
+        return true;
+    }
+
     private static boolean extractFetchStatement(String statementText,
                                                  int startLine,
                                                  int endLine,
@@ -1844,6 +1872,18 @@ final class RoutineLineageSupport {
                     RelationshipType.CURSOR_FETCH_MAP, lineNo, line, baseOrder + 10 + i));
         }
         return true;
+    }
+
+    private static boolean isValidCursorSelectByParser(String selectBody) {
+        if (selectBody == null || selectBody.isBlank()) {
+            return false;
+        }
+        try {
+            Statement statement = CCJSqlParserUtil.parse(selectBody);
+            return statement instanceof Select;
+        } catch (JSQLParserException ex) {
+            return false;
+        }
     }
 
     private static int findLineInRange(StatementSlice slice, String token, int startLine, int endLine) {
