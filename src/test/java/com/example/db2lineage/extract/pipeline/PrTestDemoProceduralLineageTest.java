@@ -592,6 +592,66 @@ class PrTestDemoProceduralLineageTest {
                 && "EXPIRY_DATE".equalsIgnoreCase(r.sourceField())
                 && "EVENT_DATE".equalsIgnoreCase(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 299
+                && "TRADE_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 300
+                && "CONSTANT:'OTC_STO_PURCHASE_TRADE_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 301
+                && "TRADE_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 302
+                && "CONSTANT:'OTC_STO_WRITTEN_TRADE_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 303
+                && "PREMIUM_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 304
+                && "CONSTANT:'OTC_STO_PURCHASE_PREMIUM_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 305
+                && "PREMIUM_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 306
+                && "CONSTANT:'OTC_STO_WRITTEN_PREMIUM_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 307
+                && "EXERCISE_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 308
+                && "CONSTANT:'OTC_STO_EXERCISE_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 309
+                && "EXPIRY_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 310
+                && "CONSTANT:'OTC_STO_EXPIRY_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 311
+                && "MATURITY_DATE".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 312
+                && "CONSTANT:'OTC_STO_PURCHASE_MATURITY_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 313
+                && "CONSTANT:'OTC_STO_WRITTEN_MATURITY_DATE'".equalsIgnoreCase(r.sourceField())
+                && "EVENT_ID".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
                 && r.lineNo() == 401
                 && "CONSTANT:'A'".equalsIgnoreCase(r.sourceField())
                 && "ACTIVE_FLAG".equalsIgnoreCase(r.targetField())
