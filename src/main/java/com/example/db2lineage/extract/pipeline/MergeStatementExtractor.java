@@ -13,6 +13,7 @@ import net.sf.jsqlparser.statement.select.WithItem;
 
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Set;
 
 public final class MergeStatementExtractor implements StatementExtractor {
@@ -113,6 +114,12 @@ public final class MergeStatementExtractor implements StatementExtractor {
 
         MergeInsert mergeInsert = merge.getMergeInsert();
         if (mergeInsert != null && mergeInsert.getColumns() != null && mergeInsert.getValues() != null) {
+            int insertAnchorLine = findLineInRange(parsedStatement, "INSERT", parsedStatement.slice().startLine());
+            int valuesAnchorLine = findLineInRange(
+                    parsedStatement,
+                    "VALUES",
+                    insertAnchorLine > 0 ? insertAnchorLine : parsedStatement.slice().startLine()
+            );
             int slots = Math.min(mergeInsert.getColumns().size(), mergeInsert.getValues().size());
             for (int i = 0; i < slots; i++) {
                 Column targetColumn = mergeInsert.getColumns().get(i);
@@ -137,10 +144,24 @@ public final class MergeStatementExtractor implements StatementExtractor {
                             parsedStatement,
                             context,
                             collector,
-                            naturalOrder++
+                            naturalOrder++,
+                            valuesAnchorLine,
+                            parsedStatement.slice().endLine()
                     );
                 }
             }
         }
+    }
+
+    private static int findLineInRange(ParsedStatementResult parsedStatement, String token, int startLine) {
+        for (int lineNo = Math.max(parsedStatement.slice().startLine(), startLine);
+             lineNo <= parsedStatement.slice().endLine();
+             lineNo++) {
+            String rawLine = parsedStatement.slice().sourceFile().getRawLine(lineNo);
+            if (rawLine.toUpperCase(Locale.ROOT).contains(token.toUpperCase(Locale.ROOT))) {
+                return lineNo;
+            }
+        }
+        return -1;
     }
 }

@@ -171,7 +171,9 @@ final class MappingRelationshipSupport {
         }
         String directSpecialRegister = directSpecialRegisterToken(expression);
         if (directSpecialRegister != null) {
-            TokenPosition anchor = locateToken(slice, directSpecialRegister, 0);
+            TokenPosition anchor = (startLine > 0 && endLine >= startLine)
+                    ? locateTokenInRange(slice, directSpecialRegister, startLine, endLine, 0)
+                    : locateToken(slice, directSpecialRegister, 0);
             return List.of(new ExpressionTokenSupport.TokenUse(
                     "CONSTANT:" + directSpecialRegister,
                     anchor.lineNo(),
@@ -363,6 +365,32 @@ final class MappingRelationshipSupport {
     static TokenPosition locateToken(StatementSlice slice, String token, int fallbackOrder) {
         LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(slice, token, fallbackOrder);
         return new TokenPosition(anchor.lineNo(), anchor.lineContent(), anchor.orderOnLine());
+    }
+
+    static TokenPosition locateTokenInRange(StatementSlice slice,
+                                            String token,
+                                            int startLine,
+                                            int endLine,
+                                            int fallbackOrder) {
+        String needle = token == null ? "" : token;
+        if (needle.startsWith("CONSTANT:")) {
+            needle = needle.substring("CONSTANT:".length());
+        } else if (needle.startsWith("FUNCTION:")) {
+            needle = needle.substring("FUNCTION:".length());
+        }
+        String upperNeedle = needle.toUpperCase(Locale.ROOT);
+        int boundedStart = Math.max(slice.startLine(), startLine);
+        int boundedEnd = Math.min(slice.endLine(), endLine);
+        if (!upperNeedle.isBlank()) {
+            for (int lineNo = boundedStart; lineNo <= boundedEnd; lineNo++) {
+                String line = slice.sourceFile().getRawLine(lineNo);
+                int idx = line.toUpperCase(Locale.ROOT).indexOf(upperNeedle);
+                if (idx >= 0) {
+                    return new TokenPosition(lineNo, line, idx);
+                }
+            }
+        }
+        return locateToken(slice, token, fallbackOrder);
     }
 
     private static String normalizeMappingSourceToken(RelationshipType relationship,

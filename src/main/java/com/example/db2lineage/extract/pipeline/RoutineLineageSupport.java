@@ -905,6 +905,12 @@ final class RoutineLineageSupport {
                 ));
 
                 if (insertValues != null && i < insertValues.size() && insertValues.get(i) instanceof Expression expression) {
+                    int valuesAnchor = findLineInRange(
+                            parsedStatement.slice(),
+                            "VALUES",
+                            insertAnchor > 0 ? insertAnchor : parsedStatement.slice().startLine(),
+                            parsedStatement.slice().endLine()
+                    );
                     MappingRelationshipSupport.addConciseMappingRows(
                             RelationshipType.MERGE_INSERT_MAP,
                             targetName,
@@ -914,7 +920,9 @@ final class RoutineLineageSupport {
                             parsedStatement,
                             context,
                             collector,
-                            naturalOrder++
+                            naturalOrder++,
+                            valuesAnchor,
+                            parsedStatement.slice().endLine()
                     );
                 }
             }
