@@ -663,6 +663,33 @@ class PrTestDemoProceduralLineageTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
                 && r.lineNo() == 799
                 && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP
+                && r.lineNo() == 825
+                && "S.BIZ_DATE".equalsIgnoreCase(r.sourceField())
+                && "BIZ_DATE".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP
+                && r.lineNo() == 826
+                && "S.PRODUCT_TYPE".equalsIgnoreCase(r.sourceField())
+                && "PRODUCT_TYPE".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP
+                && r.lineNo() == 827
+                && "S.DEAL_TYPE".equalsIgnoreCase(r.sourceField())
+                && "DEAL_TYPE".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP
+                && r.lineNo() == 828
+                && "S.EVENT_COUNT".equalsIgnoreCase(r.sourceField())
+                && "EVENT_COUNT".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SPECIAL_REGISTER_MAP
+                && r.lineNo() == 829
+                && "CONSTANT:CURRENT TIMESTAMP".equalsIgnoreCase(r.sourceField())
+                && "CREATE_TS".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP
+                && r.lineNo() == 830
+                && "lv_procedure_name".equalsIgnoreCase(r.sourceField())
+                && "CREATE_USER".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.MERGE_INSERT_MAP
+                && (r.lineNo() == 805 || r.lineNo() == 806 || r.lineNo() == 807
+                || r.lineNo() == 810 || r.lineNo() == 811 || r.lineNo() == 812)));
         assertSelectExprRowsBeforeInsertSelectMapRows(rows, 541);
         assertSelectExprRowsBeforeInsertSelectMapRows(rows, 716);
         assertSelectExprRowsBeforeInsertSelectMapRows(rows, 741);
