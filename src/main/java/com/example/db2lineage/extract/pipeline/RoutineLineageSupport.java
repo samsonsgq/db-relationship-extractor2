@@ -786,6 +786,14 @@ final class RoutineLineageSupport {
         }
         String targetName = merge.getTable().getFullyQualifiedName();
         TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, targetName, TargetObjectType.TABLE);
+        collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
+                context,
+                parsedStatement,
+                RelationshipType.MERGE_INTO,
+                targetType,
+                targetName,
+                0
+        ));
         int naturalOrder = 0;
         int searchLine = parsedStatement.slice().startLine();
         int updateAnchor = findLineInRange(parsedStatement.slice(), "UPDATE SET", parsedStatement.slice().startLine(), parsedStatement.slice().endLine());
@@ -829,6 +837,31 @@ final class RoutineLineageSupport {
                             naturalOrder++
                     ));
                 }
+                if (updateSet.getValues() == null) {
+                    continue;
+                }
+                int colIndex = 0;
+                for (Object value : updateSet.getValues()) {
+                    if (value instanceof Expression expression) {
+                        String targetField = colIndex < updateSet.getColumns().size()
+                                ? updateSet.getColumns().get(colIndex).getColumnName()
+                                : "";
+                        if (!targetField.isBlank()) {
+                            MappingRelationshipSupport.addConciseMappingRows(
+                                    RelationshipType.MERGE_SET_MAP,
+                                    targetName,
+                                    targetType,
+                                    targetField,
+                                    expression,
+                                    parsedStatement,
+                                    context,
+                                    collector,
+                                    naturalOrder++
+                            );
+                        }
+                    }
+                    colIndex++;
+                }
             }
         }
         int insertAnchor = findLineInRange(parsedStatement.slice(), "INSERT", parsedStatement.slice().startLine(), parsedStatement.slice().endLine());
@@ -836,12 +869,15 @@ final class RoutineLineageSupport {
             searchLine = Math.max(searchLine, insertAnchor);
         }
         if (merge.getMergeInsert() != null && merge.getMergeInsert().getColumns() != null) {
-            for (Column column : merge.getMergeInsert().getColumns()) {
+            List<Column> insertColumns = merge.getMergeInsert().getColumns();
+            List<?> insertValues = merge.getMergeInsert().getValues();
+            for (int i = 0; i < insertColumns.size(); i++) {
+                Column column = insertColumns.get(i);
                 int lineNo = findMergeInsertTargetLine(parsedStatement.slice(), column.getColumnName(), searchLine);
                 if (lineNo <= 0) {
                     MappingRelationshipSupport.addTargetColumnRow(
-                            RelationshipType.MERGE_TARGET_COL,
-                            targetName,
+                        RelationshipType.MERGE_TARGET_COL,
+                        targetName,
                             targetType,
                             column.getColumnName(),
                             parsedStatement,
@@ -867,6 +903,20 @@ final class RoutineLineageSupport {
                         ObjectRelationshipSupport.statementOrder(context, parsedStatement),
                         naturalOrder++
                 ));
+
+                if (insertValues != null && i < insertValues.size() && insertValues.get(i) instanceof Expression expression) {
+                    MappingRelationshipSupport.addConciseMappingRows(
+                            RelationshipType.MERGE_INSERT_MAP,
+                            targetName,
+                            targetType,
+                            column.getColumnName(),
+                            expression,
+                            parsedStatement,
+                            context,
+                            collector,
+                            naturalOrder++
+                    );
+                }
             }
         }
     }
@@ -1361,18 +1411,18 @@ final class RoutineLineageSupport {
         }
         if (expression instanceof IsNullExpression isNullExpression) {
             int predicateAnchor = deriveAnchorLineForExpression(isNullExpression.getLeftExpression(), parsedStatement, anchorLine);
-            PredicateTerm left = resolvePredicateTerm(isNullExpression.getLeftExpression(), resolution);
+            PredicateTerm left = resolvePredicateTerm(isNullExpression.getLeftExpression(), resolution, relationship);
             naturalOrder = addPredicateTermRow(relationship, left, parsedStatement, context, collector, predicateAnchor, naturalOrder);
             PredicateTerm nullTerm = new PredicateTerm("CONSTANT:NULL", left.targetType(), left.targetObject(), left.targetField());
             return addPredicateTermRow(relationship, nullTerm, parsedStatement, context, collector, predicateAnchor, naturalOrder);
         }
         if (expression instanceof InExpression inExpression) {
             int predicateAnchor = deriveAnchorLineForExpression(inExpression.getLeftExpression(), parsedStatement, anchorLine);
-            PredicateTerm left = resolvePredicateTerm(inExpression.getLeftExpression(), resolution);
+            PredicateTerm left = resolvePredicateTerm(inExpression.getLeftExpression(), resolution, relationship);
             naturalOrder = addPredicateTermRow(relationship, left, parsedStatement, context, collector, predicateAnchor, naturalOrder);
             if (inExpression.getRightExpression() instanceof ExpressionList<?> list && list.getExpressions() != null) {
                 for (Expression item : list.getExpressions()) {
-                    PredicateTerm right = resolvePredicateTerm(item, resolution);
+                    PredicateTerm right = resolvePredicateTerm(item, resolution, relationship);
                     if (right.sourceField().startsWith("CONSTANT:") && left.isConcreteTarget()) {
                         right = new PredicateTerm(right.sourceField(), left.targetType(), left.targetObject(), left.targetField());
                     }
@@ -1383,8 +1433,8 @@ final class RoutineLineageSupport {
         }
         if (expression instanceof BinaryExpression binaryExpression) {
             int predicateAnchor = deriveAnchorLineForExpression(binaryExpression.getLeftExpression(), parsedStatement, anchorLine);
-            PredicateTerm left = resolvePredicateTerm(binaryExpression.getLeftExpression(), resolution);
-            PredicateTerm right = resolvePredicateTerm(binaryExpression.getRightExpression(), resolution);
+            PredicateTerm left = resolvePredicateTerm(binaryExpression.getLeftExpression(), resolution, relationship);
+            PredicateTerm right = resolvePredicateTerm(binaryExpression.getRightExpression(), resolution, relationship);
             naturalOrder = addPredicateTermRow(relationship, left, parsedStatement, context, collector, predicateAnchor, naturalOrder);
             if (right.sourceField().startsWith("CONSTANT:") && left.isConcreteTarget()) {
                 right = new PredicateTerm(right.sourceField(), left.targetType(), left.targetObject(), left.targetField());
@@ -1393,7 +1443,7 @@ final class RoutineLineageSupport {
             }
             return addPredicateTermRow(relationship, right, parsedStatement, context, collector, predicateAnchor, naturalOrder);
         }
-        PredicateTerm generic = resolvePredicateTerm(expression, resolution);
+        PredicateTerm generic = resolvePredicateTerm(expression, resolution, relationship);
         return addPredicateTermRow(relationship, generic, parsedStatement, context, collector, anchorLine, naturalOrder);
     }
 
@@ -1466,7 +1516,9 @@ final class RoutineLineageSupport {
         return naturalOrder + 1;
     }
 
-    private static PredicateTerm resolvePredicateTerm(Expression expression, OwnershipResolution resolution) {
+    private static PredicateTerm resolvePredicateTerm(Expression expression,
+                                                      OwnershipResolution resolution,
+                                                      RelationshipType relationship) {
         if (expression == null) {
             return new PredicateTerm("", TargetObjectType.UNKNOWN, ObjectRelationshipSupport.UNKNOWN_UNRESOLVED_OBJECT, "");
         }
@@ -1477,7 +1529,8 @@ final class RoutineLineageSupport {
             if (qualifier != null && !qualifier.isBlank()) {
                 TableOwner owner = resolution.aliasOwners().get(qualifier.toUpperCase(Locale.ROOT));
                 if (owner != null) {
-                    return new PredicateTerm(source, owner.type(), owner.objectName(), source);
+                    String sourceField = relationship == RelationshipType.MERGE_MATCH ? qualifier + "." + source : source;
+                    return new PredicateTerm(sourceField, owner.type(), owner.objectName(), source);
                 }
             }
             if (resolution.singleTableOwner() != null && !looksLikeVariable(source)) {
@@ -1559,6 +1612,12 @@ final class RoutineLineageSupport {
             return addTableOwner(table, aliasOwners, context);
         }
         if (fromItem instanceof ParenthesedSelect parenthesedSelect && parenthesedSelect.getSelect() != null) {
+            if (parenthesedSelect.getAlias() != null && parenthesedSelect.getAlias().getName() != null) {
+                String alias = parenthesedSelect.getAlias().getName();
+                TableOwner derivedOwner = new TableOwner(alias, TargetObjectType.DERIVED_TABLE);
+                aliasOwners.put(alias.toUpperCase(Locale.ROOT), derivedOwner);
+                return derivedOwner;
+            }
             Select select = parenthesedSelect.getSelect();
             if (select.getSelectBody() instanceof PlainSelect plainSelect) {
                 TableOwner single = addFromItemOwners(plainSelect.getFromItem(), aliasOwners, context);
