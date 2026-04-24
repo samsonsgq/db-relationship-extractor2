@@ -1333,9 +1333,7 @@ final class RoutineLineageSupport {
             if (objectName == null || objectName.isBlank()) {
                 return;
             }
-            TargetObjectType targetType = context.schemaMetadataService()
-                    .resolveObjectType(objectName)
-                    .orElse(TargetObjectType.TABLE);
+            TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, objectName, TargetObjectType.TABLE);
             int lineNo = findExpressionLine(parsedStatement.slice(), objectName, parsedStatement.slice().startLine());
             refs.add(new TableRef(ObjectRelationshipSupport.normalizeObjectName(objectName), targetType, lineNo));
         }
@@ -1831,7 +1829,10 @@ final class RoutineLineageSupport {
         }
         String cursor = declare.group(1).trim();
         String selectBody = declare.group(2).trim();
-        int declareLineNo = findLineInRange(parsedStatement.slice(), "DECLARE " + cursor, startLine, endLine);
+        int declareLineNo = findDeclareCursorLineInRange(parsedStatement.slice(), cursor, startLine, endLine);
+        if (declareLineNo <= 0) {
+            return false;
+        }
         String declareLine = parsedStatement.slice().sourceFile().getRawLine(declareLineNo);
         if (isValidCursorSelectByParser(selectBody)) {
             collector.addDraft(parserLineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
@@ -1872,6 +1873,39 @@ final class RoutineLineageSupport {
                     RelationshipType.CURSOR_FETCH_MAP, lineNo, line, baseOrder + 10 + i));
         }
         return true;
+    }
+
+    private static int findDeclareCursorLineInRange(StatementSlice slice,
+                                                    String cursor,
+                                                    int startLine,
+                                                    int endLine) {
+        if (slice == null || cursor == null || cursor.isBlank()) {
+            return -1;
+        }
+        int boundedStart = Math.max(slice.startLine(), startLine);
+        int boundedEnd = Math.min(slice.endLine(), endLine);
+        int match = findDeclareCursorLine(slice, cursor, boundedStart, boundedEnd);
+        if (match > 0) {
+            return match;
+        }
+        return findDeclareCursorLine(slice, cursor, slice.startLine(), slice.endLine());
+    }
+
+    private static int findDeclareCursorLine(StatementSlice slice,
+                                             String cursor,
+                                             int startLine,
+                                             int endLine) {
+        for (int lineNo = startLine; lineNo <= endLine; lineNo++) {
+            String raw = slice.sourceFile().getRawLine(lineNo);
+            Matcher declare = DECLARE_CURSOR_PATTERN.matcher(raw);
+            if (!declare.find()) {
+                continue;
+            }
+            if (cursor.equalsIgnoreCase(declare.group(1).trim())) {
+                return lineNo;
+            }
+        }
+        return -1;
     }
 
     private static boolean isValidCursorSelectByParser(String selectBody) {
@@ -2234,10 +2268,9 @@ final class RoutineLineageSupport {
                                              ExtractionContext context, RowCollector collector, int baseNaturalOrder) {
         Matcher declare = DECLARE_CURSOR_PATTERN.matcher(line);
         if (declare.find()) {
-            String cursor = declare.group(1).trim();
-            collector.addDraft(lineDraft(parsedStatement, context, "", TargetObjectType.CURSOR, cursor, "",
-                    RelationshipType.CURSOR_DEFINE, lineNo, line, baseNaturalOrder));
-            return true;
+            // Cursor declaration rows should be anchored from full statement-level extraction,
+            // so we don't emit per-line fallback rows here.
+            return false;
         }
         Matcher open = OPEN_CURSOR_PATTERN.matcher(line);
         if (open.find()) {
