@@ -496,10 +496,10 @@ final class RoutineLineageSupport {
             if (update.getExpressions() != null) {
                 for (Expression expression : update.getExpressions()) {
                     if (expression instanceof ParenthesedSelect parenthesedSelect) {
-                        addFocusedRowsFromSelect(parenthesedSelect.getSelect(), nestedParsed, context, collector);
+                        addFocusedRowsFromSelect(parenthesedSelect.getSelect(), nestedParsed, context, collector, false);
                         addFocusedWhereRowsFromSelect(parenthesedSelect.getSelect(), nestedParsed, context, collector, updateResolution);
                     } else if (expression instanceof Select select) {
-                        addFocusedRowsFromSelect(select, nestedParsed, context, collector);
+                        addFocusedRowsFromSelect(select, nestedParsed, context, collector, false);
                         addFocusedWhereRowsFromSelect(select, nestedParsed, context, collector, updateResolution);
                     }
                 }
@@ -672,9 +672,9 @@ final class RoutineLineageSupport {
         if (expression instanceof ExistsExpression existsExpression) {
             Expression right = existsExpression.getRightExpression();
             if (right instanceof ParenthesedSelect parenthesedSelect) {
-                addFocusedRowsFromSelect(parenthesedSelect.getSelect(), parsedStatement, context, collector);
+                addFocusedSelectTablesOnlyFromSelect(parenthesedSelect.getSelect(), parsedStatement, context, collector);
             } else if (right instanceof Select select) {
-                addFocusedRowsFromSelect(select, parsedStatement, context, collector);
+                addFocusedSelectTablesOnlyFromSelect(select, parsedStatement, context, collector);
             }
             return;
         }
@@ -686,6 +686,42 @@ final class RoutineLineageSupport {
         if (expression instanceof OrExpression orExpression) {
             addFocusedSelectTablesFromExists(orExpression.getLeftExpression(), parsedStatement, context, collector);
             addFocusedSelectTablesFromExists(orExpression.getRightExpression(), parsedStatement, context, collector);
+        }
+    }
+
+    private static void addFocusedSelectTablesOnlyFromSelect(Select select,
+                                                              ParsedStatementResult parsedStatement,
+                                                              ExtractionContext context,
+                                                              RowCollector collector) {
+        Select unwrapped = unwrapParenthesedSelect(select);
+        if (unwrapped == null) {
+            return;
+        }
+        if (unwrapped instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
+            for (Select branch : setOperationList.getSelects()) {
+                addFocusedSelectTablesOnlyFromSelect(branch, parsedStatement, context, collector);
+            }
+            return;
+        }
+        if (!(unwrapped instanceof PlainSelect plainSelect)) {
+            return;
+        }
+        for (TableRef tableRef : collectSelectReadObjectsFromPlainSelect(plainSelect, parsedStatement, context)) {
+            int lineNo = tableRef.lineNo() > 0 ? tableRef.lineNo() : parsedStatement.slice().startLine();
+            collector.addDraft(new RowDraft(
+                    ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                    "",
+                    tableRef.targetType(),
+                    tableRef.targetObject(),
+                    "",
+                    RelationshipType.SELECT_TABLE,
+                    lineNo,
+                    parsedStatement.slice().sourceFile().getRawLine(lineNo),
+                    ConfidenceLevel.PARSER,
+                    ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                    0
+            ));
         }
     }
 
@@ -878,14 +914,15 @@ final class RoutineLineageSupport {
                                                       ExtractionContext context,
                                                       RowCollector collector,
                                                       OwnershipResolution outerResolution) {
-        if (select == null || select.getSelectBody() == null) {
+        Select unwrapped = unwrapParenthesedSelect(select);
+        if (unwrapped == null || unwrapped.getSelectBody() == null) {
             return;
         }
-        if (select.getSelectBody() instanceof PlainSelect plainSelect) {
-            emitFocusedWhereFromPlainSelect(plainSelect, select, parsedStatement, context, collector, outerResolution);
+        if (unwrapped.getSelectBody() instanceof PlainSelect plainSelect) {
+            emitFocusedWhereFromPlainSelect(plainSelect, unwrapped, parsedStatement, context, collector, outerResolution);
             return;
         }
-        if (select.getSelectBody() instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
+        if (unwrapped.getSelectBody() instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
             for (Select branch : setOperationList.getSelects()) {
                 if (branch != null && branch.getSelectBody() instanceof PlainSelect plainSelectBranch) {
                     emitFocusedWhereFromPlainSelect(plainSelectBranch, branch, parsedStatement, context, collector, outerResolution);
@@ -925,18 +962,30 @@ final class RoutineLineageSupport {
                                                  ParsedStatementResult parsedStatement,
                                                  ExtractionContext context,
                                                  RowCollector collector) {
-        if (select instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
+        addFocusedRowsFromSelect(select, parsedStatement, context, collector, true);
+    }
+
+    private static void addFocusedRowsFromSelect(Select select,
+                                                 ParsedStatementResult parsedStatement,
+                                                 ExtractionContext context,
+                                                 RowCollector collector,
+                                                 boolean includePredicateRows) {
+        Select unwrapped = unwrapParenthesedSelect(select);
+        if (unwrapped == null) {
+            return;
+        }
+        if (unwrapped instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
             for (net.sf.jsqlparser.statement.select.Select branch : setOperationList.getSelects()) {
                 if (branch instanceof PlainSelect plainSelectBranch) {
-                    addFocusedRowsFromPlainSelect(plainSelectBranch, parsedStatement, context, collector);
+                    addFocusedRowsFromPlainSelect(plainSelectBranch, parsedStatement, context, collector, includePredicateRows);
                 }
             }
             return;
         }
-        if (!(select instanceof PlainSelect plainSelect)) {
+        if (!(unwrapped instanceof PlainSelect plainSelect)) {
             return;
         }
-        addFocusedRowsFromPlainSelect(plainSelect, parsedStatement, context, collector);
+        addFocusedRowsFromPlainSelect(plainSelect, parsedStatement, context, collector, includePredicateRows);
     }
 
     private static void addFocusedRowsFromInsert(Insert insert,
@@ -1059,7 +1108,8 @@ final class RoutineLineageSupport {
     private static void addFocusedRowsFromPlainSelect(PlainSelect plainSelect,
                                                       ParsedStatementResult parsedStatement,
                                                       ExtractionContext context,
-                                                      RowCollector collector) {
+                                                      RowCollector collector,
+                                                      boolean includePredicateRows) {
         for (TableRef tableRef : collectSelectReadObjectsFromPlainSelect(plainSelect, parsedStatement, context)) {
             int lineNo = tableRef.lineNo() > 0 ? tableRef.lineNo() : parsedStatement.slice().startLine();
             collector.addDraft(new RowDraft(
@@ -1143,6 +1193,9 @@ final class RoutineLineageSupport {
                     ) + 1;
                 }
             }
+        }
+        if (!includePredicateRows) {
+            return;
         }
         addFocusedExpressionRows(RelationshipType.WHERE, plainSelect.getWhere(), parsedStatement, context, collector, "WHERE");
         if (plainSelect.getJoins() == null) {
@@ -1440,12 +1493,15 @@ final class RoutineLineageSupport {
     private static OwnershipResolution buildOwnershipResolution(Statement statement, ExtractionContext context, String routineName) {
         java.util.Map<String, TableOwner> aliasOwners = new java.util.LinkedHashMap<>();
         TableOwner single = null;
-        if (statement instanceof Select select && select.getSelectBody() instanceof PlainSelect plainSelect) {
+        if (statement instanceof Select select) {
+            Select resolvedSelect = unwrapParenthesedSelect(select);
+            if (resolvedSelect != null && resolvedSelect.getSelectBody() instanceof PlainSelect plainSelect) {
             single = addFromItemOwners(plainSelect.getFromItem(), aliasOwners, context);
             if (plainSelect.getJoins() != null) {
                 for (Join join : plainSelect.getJoins()) {
                     addFromItemOwners(join.getFromItem(), aliasOwners, context);
                 }
+            }
             }
         } else if (statement instanceof Insert insert) {
             if (insert.getSelect() instanceof PlainSelect plainSelect) {
@@ -1471,6 +1527,14 @@ final class RoutineLineageSupport {
             addFromItemOwners(merge.getFromItem(), aliasOwners, context);
         }
         return new OwnershipResolution(aliasOwners, single, routineName);
+    }
+
+    private static Select unwrapParenthesedSelect(Select select) {
+        Select current = select;
+        while (current instanceof ParenthesedSelect parenthesedSelect && parenthesedSelect.getSelect() != null) {
+            current = parenthesedSelect.getSelect();
+        }
+        return current;
     }
 
     private static TableOwner addFromItemOwners(FromItem fromItem,
