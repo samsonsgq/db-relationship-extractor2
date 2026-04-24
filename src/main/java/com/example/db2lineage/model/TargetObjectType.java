@@ -3,6 +3,7 @@ package com.example.db2lineage.model;
 public enum TargetObjectType {
     TABLE,
     VIEW,
+    DERIVED_TABLE,
     SESSION_TABLE,
     CTE,
     FUNCTION,
