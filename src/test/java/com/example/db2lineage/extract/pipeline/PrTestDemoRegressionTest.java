@@ -114,6 +114,15 @@ class PrTestDemoRegressionTest {
                 && r.lineNo() == 188
                 && "TEMP.SYS_WHERE".equalsIgnoreCase(r.targetObject())
                 && (r.confidence() == ConfidenceLevel.REGEX || r.confidence() == ConfidenceLevel.PARSER)));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_TABLE
+                && r.lineNo() == 219
+                && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_TABLE
+                && r.lineNo() == 226
+                && "TEMP.TEST_EVENT_DETAIL_P".equalsIgnoreCase(r.targetObject())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_TABLE
+                && r.lineNo() == 232
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())));
 
         assertEquals(1, rows.stream()
                 .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION

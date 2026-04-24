@@ -363,6 +363,27 @@ final class RoutineLineageSupport {
             }
             return;
         }
+        if (parsed instanceof Delete delete) {
+            String targetName = delete.getTable() == null
+                    ? ObjectRelationshipSupport.UNKNOWN_UNRESOLVED_OBJECT
+                    : delete.getTable().getFullyQualifiedName();
+            TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, targetName, TargetObjectType.TABLE);
+            int deleteLine = findLineInRange(parsedStatement.slice(), "DELETE FROM", startLine, endLine);
+            String deleteContent = parsedStatement.slice().sourceFile().getRawLine(deleteLine);
+            addTableLevelDraftIfAbsent(collector, parserLineDraft(
+                    parsedStatement,
+                    context,
+                    "",
+                    targetType,
+                    targetName,
+                    "",
+                    targetType == TargetObjectType.VIEW ? RelationshipType.DELETE_VIEW : RelationshipType.DELETE_TABLE,
+                    deleteLine,
+                    deleteContent,
+                    baseOrder + naturalOrder++
+            ));
+            return;
+        }
         if (!(parsed instanceof Insert insert)) {
             return;
         }
