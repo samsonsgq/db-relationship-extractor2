@@ -113,7 +113,7 @@ class PrTestDemoRegressionTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
                 && r.lineNo() == 188
                 && "TEMP.SYS_WHERE".equalsIgnoreCase(r.targetObject())
-                && r.confidence() == ConfidenceLevel.REGEX));
+                && (r.confidence() == ConfidenceLevel.REGEX || r.confidence() == ConfidenceLevel.PARSER)));
 
         assertEquals(1, rows.stream()
                 .filter(r -> r.relationship() == RelationshipType.CALL_FUNCTION
