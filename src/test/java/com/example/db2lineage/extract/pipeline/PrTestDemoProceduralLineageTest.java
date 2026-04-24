@@ -357,6 +357,30 @@ class PrTestDemoProceduralLineageTest {
                 && "DEAL_SB_NUM".equalsIgnoreCase(r.sourceField())
                 && "TEMP.STRUCTURED_OPTION_SOD".equalsIgnoreCase(r.targetObject())
                 && "DEAL_SB_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.WHERE
+                && r.lineNo() == 762
+                && "CUST_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "CUST_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.WHERE
+                && r.lineNo() == 763
+                && "SB_ACCT_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "SB_ACCT_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.WHERE
+                && r.lineNo() == 764
+                && "DEAL_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "DEAL_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.WHERE
+                && r.lineNo() == 765
+                && "DEAL_SB_NUM".equalsIgnoreCase(r.sourceField())
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())
+                && "DEAL_SB_NUM".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && r.lineNo() == 766
+                && "CONSTANT:1".equalsIgnoreCase(r.sourceField())
+                && "UNKNOWN_SELECT_EXPR".equalsIgnoreCase(r.targetObject())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.WHERE
                 && r.lineNo() == 776
                 && "CUST_NUM".equalsIgnoreCase(r.sourceField())
