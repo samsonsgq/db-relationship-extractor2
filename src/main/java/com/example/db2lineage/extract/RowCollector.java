@@ -34,7 +34,8 @@ public final class RowCollector {
             }
         }
 
-        List<RowDraft> filteredDrafts = suppressNearbyRegexDuplicates(new ArrayList<>(deduplicated.values()));
+        List<RowDraft> filteredDrafts = suppressRegexWhenParserEquivalent(new ArrayList<>(deduplicated.values()));
+        filteredDrafts = suppressNearbyRegexDuplicates(filteredDrafts);
         filteredDrafts = suppressUnknownWhenResolvedExists(filteredDrafts);
 
         Map<GroupKey, List<RowDraft>> grouped = new LinkedHashMap<>();
@@ -79,6 +80,27 @@ public final class RowCollector {
     private static boolean shouldReplace(RowDraft existing, RowDraft candidate) {
         return existing.confidence() == com.example.db2lineage.model.ConfidenceLevel.REGEX
                 && candidate.confidence() == com.example.db2lineage.model.ConfidenceLevel.PARSER;
+    }
+
+    private static List<RowDraft> suppressRegexWhenParserEquivalent(List<RowDraft> rows) {
+        Map<ParserEquivalentKey, Boolean> parserByKey = new LinkedHashMap<>();
+        for (RowDraft row : rows) {
+            ParserEquivalentKey key = ParserEquivalentKey.from(row);
+            if (row.confidence() == com.example.db2lineage.model.ConfidenceLevel.PARSER) {
+                parserByKey.put(key, true);
+            } else {
+                parserByKey.putIfAbsent(key, false);
+            }
+        }
+        List<RowDraft> filtered = new ArrayList<>();
+        for (RowDraft row : rows) {
+            if (row.confidence() == com.example.db2lineage.model.ConfidenceLevel.REGEX
+                    && Boolean.TRUE.equals(parserByKey.get(ParserEquivalentKey.from(row)))) {
+                continue;
+            }
+            filtered.add(row);
+        }
+        return filtered;
     }
 
     private static List<RowDraft> suppressUnknownWhenResolvedExists(List<RowDraft> rows) {
@@ -301,6 +323,30 @@ public final class RowCollector {
                     draft.targetObject(),
                     draft.targetField(),
                     draft.relationship()
+            );
+        }
+    }
+
+    private record ParserEquivalentKey(
+            com.example.db2lineage.model.SourceObjectType sourceObjectType,
+            String sourceObject,
+            String sourceField,
+            com.example.db2lineage.model.TargetObjectType targetObjectType,
+            String targetObject,
+            String targetField,
+            com.example.db2lineage.model.RelationshipType relationship,
+            int lineNo
+    ) {
+        private static ParserEquivalentKey from(RowDraft draft) {
+            return new ParserEquivalentKey(
+                    draft.sourceObjectType(),
+                    draft.sourceObject(),
+                    draft.sourceField(),
+                    draft.targetObjectType(),
+                    draft.targetObject(),
+                    draft.targetField(),
+                    draft.relationship(),
+                    draft.lineNo()
             );
         }
     }
