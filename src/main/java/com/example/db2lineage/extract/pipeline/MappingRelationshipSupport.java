@@ -255,6 +255,13 @@ final class MappingRelationshipSupport {
             for (WhenClause whenClause : caseExpression.getWhenClauses()) {
                 Expression whenExpression = whenClause.getWhenExpression();
                 int whenLine = findCaseBranchAnchorLine(slice, "WHEN", whenExpression, searchStartLine, boundedEndLine);
+
+                Expression thenExpression = whenClause.getThenExpression();
+                int thenLine = findCaseBranchAnchorLine(slice, "THEN", thenExpression, whenLine, boundedEndLine);
+
+                if (thenLine > whenLine) {
+                    tokens.addAll(conciseMappingTokensWithinRange(whenExpression, slice, whenLine, thenLine));
+                }
                 tokens.addAll(conciseMappingTokensWithinRange(whenExpression, slice, whenLine, boundedEndLine));
 
                 Expression thenExpression = whenClause.getThenExpression();
