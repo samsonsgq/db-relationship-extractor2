@@ -182,7 +182,7 @@ final class MappingRelationshipSupport {
             ));
         }
         if (expression instanceof CaseExpression caseExpression) {
-            return fromCaseExpression(caseExpression, slice, startLine, endLine);
+            return fromCaseExpression(caseExpression, slice, mappingRelationship, startLine, endLine);
         }
         if (mappingRelationship != RelationshipType.INSERT_SELECT_MAP && containsFunction(expression)) {
             // Conservative default for non-insert mapping families.
@@ -242,6 +242,7 @@ final class MappingRelationshipSupport {
 
     private static List<ExpressionTokenSupport.TokenUse> fromCaseExpression(CaseExpression caseExpression,
                                                                             StatementSlice slice,
+                                                                            RelationshipType mappingRelationship,
                                                                             int startLine,
                                                                             int endLine) {
         List<ExpressionTokenSupport.TokenUse> tokens = new ArrayList<>();
@@ -251,11 +252,16 @@ final class MappingRelationshipSupport {
             return List.of();
         }
         int searchStartLine = boundedStartLine;
-        if (caseExpression.getWhenClauses() != null) {
-            for (WhenClause whenClause : caseExpression.getWhenClauses()) {
+        List<WhenClause> whenClauses = caseExpression.getWhenClauses();
+        boolean includeWhenTokens = !isMappingRelationship(mappingRelationship)
+                || (whenClauses != null && whenClauses.size() > 1);
+        if (whenClauses != null) {
+            for (WhenClause whenClause : whenClauses) {
                 Expression whenExpression = whenClause.getWhenExpression();
                 int whenLine = findCaseBranchAnchorLine(slice, "WHEN", whenExpression, searchStartLine, boundedEndLine);
-                tokens.addAll(conciseMappingTokensWithinRange(whenExpression, slice, whenLine, boundedEndLine));
+                if (includeWhenTokens) {
+                    tokens.addAll(conciseMappingTokensWithinRange(whenExpression, slice, whenLine, boundedEndLine));
+                }
 
                 Expression thenExpression = whenClause.getThenExpression();
                 int thenLine = findCaseBranchAnchorLine(slice, "THEN", thenExpression, whenLine, boundedEndLine);
@@ -268,6 +274,14 @@ final class MappingRelationshipSupport {
             tokens.addAll(conciseMappingTokensWithinRange(caseExpression.getElseExpression(), slice, elseLine, boundedEndLine));
         }
         return dedupe(tokens);
+    }
+
+    private static boolean isMappingRelationship(RelationshipType relationshipType) {
+        return relationshipType == RelationshipType.INSERT_SELECT_MAP
+                || relationshipType == RelationshipType.UPDATE_SET_MAP
+                || relationshipType == RelationshipType.MERGE_SET_MAP
+                || relationshipType == RelationshipType.MERGE_INSERT_MAP
+                || relationshipType == RelationshipType.VARIABLE_SET_MAP;
     }
 
     private static List<ExpressionTokenSupport.TokenUse> conciseMappingTokensWithinRange(Expression expression,
