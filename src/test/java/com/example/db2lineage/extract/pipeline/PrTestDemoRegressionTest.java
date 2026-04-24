@@ -196,5 +196,27 @@ class PrTestDemoRegressionTest {
         assertEquals(0, line287.stream()
                 .filter(r -> r.relationship() == RelationshipType.FUNCTION_EXPR_MAP)
                 .count());
+
+        List<RelationshipRow> line365 = rows.stream()
+                .filter(r -> r.lineNo() == 365)
+                .sorted(Comparator.comparingInt(RelationshipRow::lineRelationSeq))
+                .toList();
+        assertTrue(line365.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && "CONSTANT:1".equalsIgnoreCase(r.sourceField())
+                && "UNKNOWN_SELECT_EXPR".equalsIgnoreCase(r.targetObject())));
+        assertTrue(line365.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && "CONSTANT:0".equalsIgnoreCase(r.sourceField())
+                && "UNKNOWN_SELECT_EXPR".equalsIgnoreCase(r.targetObject())));
+        assertTrue(line365.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && "CONSTANT:1".equalsIgnoreCase(r.sourceField())
+                && "lv_has_data".equalsIgnoreCase(r.targetField())));
+        assertTrue(line365.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && "CONSTANT:0".equalsIgnoreCase(r.sourceField())
+                && "lv_has_data".equalsIgnoreCase(r.targetField())));
+        assertFalse(line365.stream().anyMatch(r -> r.relationship() == RelationshipType.VARIABLE_SET_MAP
+                && r.sourceField().toUpperCase().startsWith("CASE WHEN EXISTS")));
+        assertTrue(line365.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                && r.targetObjectType() == TargetObjectType.SESSION_TABLE
+                && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject())));
     }
 }

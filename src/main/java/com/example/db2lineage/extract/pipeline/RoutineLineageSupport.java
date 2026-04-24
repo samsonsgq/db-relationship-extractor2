@@ -23,6 +23,7 @@ import net.sf.jsqlparser.statement.select.ParenthesedSelect;
 import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
+import net.sf.jsqlparser.util.TablesNamesFinder;
 import net.sf.jsqlparser.statement.select.SetOperationList;
 import net.sf.jsqlparser.statement.select.Values;
 import net.sf.jsqlparser.statement.update.Update;
@@ -312,56 +313,32 @@ final class RoutineLineageSupport {
 
         int naturalOrder = 0;
         if (parsed instanceof Select select) {
+            Set<String> tableNames = new LinkedHashSet<>();
             for (ObjectRelationshipSupport.TableRef ref : ObjectRelationshipSupport.collectSelectReadObjects(select)) {
-                int lineNo = findLineInRange(parsedStatement.slice(), ref.objectName(), startLine, endLine);
+                tableNames.add(ref.objectName());
+            }
+            tableNames.addAll(new TablesNamesFinder().getTables((Statement) select));
+            boolean hasNonDummyTable = tableNames.stream()
+                    .anyMatch(name -> !"SYSIBM.SYSDUMMY1".equalsIgnoreCase(name));
+            for (String tableName : tableNames) {
+                if (hasNonDummyTable && "SYSIBM.SYSDUMMY1".equalsIgnoreCase(tableName)) {
+                    continue;
+                }
+                int lineNo = findLineInRange(parsedStatement.slice(), tableName, startLine, endLine);
                 String line = parsedStatement.slice().sourceFile().getRawLine(lineNo);
-                TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, ref.objectName(), ref.targetType());
+                TargetObjectType targetType = resolveObjectTypeWithSessionFallback(context, tableName, TargetObjectType.TABLE);
                 addTableLevelDraftIfAbsent(collector, lineDraft(
                         parsedStatement,
                         context,
                         "",
                         targetType,
-                        ref.objectName(),
+                        tableName,
                         "",
                         RelationshipType.SELECT_TABLE,
                         lineNo,
                         line,
                         baseOrder + naturalOrder++
                 ));
-            }
-            if (!selectIntoSources.isEmpty() && !selectIntoTargets.isEmpty()) {
-                int pairs = Math.min(selectIntoSources.size(), selectIntoTargets.size());
-                String owningRoutine = ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice());
-                for (int i = 0; i < pairs; i++) {
-                    String sourceExpr = selectIntoSources.get(i).trim();
-                    String targetVar = normalizeSourceToken(selectIntoTargets.get(i).trim());
-                    if (targetVar.isBlank()) {
-                        continue;
-                    }
-                    String sourceToken = normalizeSourceToken(sourceExpr);
-                    try {
-                        Expression expr = CCJSqlParserUtil.parseExpression(sourceExpr);
-                        if (expr instanceof Column column && column.getColumnName() != null && !column.getColumnName().isBlank()) {
-                            sourceToken = column.getColumnName();
-                        }
-                    } catch (Exception ignored) {
-                        // Keep normalized source token fallback.
-                    }
-                    int mapLine = findLineInRange(parsedStatement.slice(), sourceExpr, startLine, endLine);
-                    String mapContent = parsedStatement.slice().sourceFile().getRawLine(mapLine);
-                    collector.addDraft(parserLineDraft(
-                            parsedStatement,
-                            context,
-                            sourceToken,
-                            TargetObjectType.VARIABLE,
-                            owningRoutine,
-                            targetVar,
-                            RelationshipType.VARIABLE_SET_MAP,
-                            mapLine,
-                            mapContent,
-                            baseOrder + naturalOrder++
-                    ));
-                }
             }
             return;
         }
@@ -2020,7 +1997,7 @@ final class RoutineLineageSupport {
             int lineNo = findLineInRange(parsedStatement.slice(), selectItem, startLine, endLine);
             String lineContent = parsedStatement.slice().sourceFile().getRawLine(lineNo);
             try {
-                Expression expression = CCJSqlParserUtil.parseExpression(selectItem);
+                Expression expression = parseSelectIntoExpression(selectItem);
                 MappingRelationshipSupport.addConciseMappingRows(
                         RelationshipType.VARIABLE_SET_MAP,
                         owningRoutine,
@@ -2050,6 +2027,22 @@ final class RoutineLineageSupport {
                         1
                 ));
             }
+        }
+    }
+
+    private static Expression parseSelectIntoExpression(String selectItem) throws JSQLParserException {
+        try {
+            return CCJSqlParserUtil.parseExpression(selectItem);
+        } catch (JSQLParserException ignored) {
+            Statement statement = CCJSqlParserUtil.parse("SELECT " + selectItem + " FROM SYSIBM.SYSDUMMY1");
+            if (statement instanceof Select wrappedSelect
+                    && wrappedSelect instanceof PlainSelect plainSelect
+                    && plainSelect.getSelectItems() != null
+                    && !plainSelect.getSelectItems().isEmpty()
+                    && plainSelect.getSelectItems().get(0).getExpression() != null) {
+                return plainSelect.getSelectItems().get(0).getExpression();
+            }
+            throw ignored;
         }
     }
 
