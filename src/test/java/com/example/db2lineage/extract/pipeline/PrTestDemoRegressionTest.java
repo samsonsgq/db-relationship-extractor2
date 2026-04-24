@@ -114,6 +114,27 @@ class PrTestDemoRegressionTest {
                 && r.lineNo() == 188
                 && "TEMP.SYS_WHERE".equalsIgnoreCase(r.targetObject())
                 && (r.confidence() == ConfidenceLevel.REGEX || r.confidence() == ConfidenceLevel.PARSER)));
+        List<RelationshipRow> line152SessionSelect = rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                        && r.lineNo() == 152
+                        && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject()))
+                .toList();
+        assertEquals(1, line152SessionSelect.size());
+        assertEquals(TargetObjectType.SESSION_TABLE, line152SessionSelect.get(0).targetObjectType());
+        assertEquals(ConfidenceLevel.PARSER, line152SessionSelect.get(0).confidence());
+        assertEquals(0, rows.stream()
+                .filter(r -> r.relationship() == RelationshipType.CURSOR_DEFINE
+                        && "c_event_detail".equalsIgnoreCase(r.targetObject())
+                        && r.lineNo() == 139)
+                .count());
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.CURSOR_DEFINE
+                && "c_event_detail".equalsIgnoreCase(r.targetObject())
+                && r.lineNo() == 135));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_FIELD
+                && r.lineNo() == 139
+                && "DEAL_SUB_NUMBER".equalsIgnoreCase(r.sourceField())
+                && r.lineRelationSeq() == 0
+                && r.confidence() == ConfidenceLevel.PARSER));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.DELETE_TABLE
                 && r.lineNo() == 219
                 && "SESSION.TMP_STO_EVENT_SOURCE".equalsIgnoreCase(r.targetObject())));
