@@ -19,6 +19,7 @@ import net.sf.jsqlparser.statement.select.PlainSelect;
 import net.sf.jsqlparser.statement.select.Select;
 import net.sf.jsqlparser.statement.select.SelectItem;
 import net.sf.jsqlparser.statement.select.SetOperationList;
+import net.sf.jsqlparser.util.TablesNamesFinder;
 
 import java.util.HashSet;
 import java.util.LinkedHashMap;
@@ -68,6 +69,8 @@ public final class SelectStatementExtractor implements StatementExtractor {
                         context, parsedStatement, relationship, targetType, ref.objectName(), naturalOrder++
                 ));
             }
+        } else {
+            naturalOrder = emitSelectIntoReadObjects(parsedStatement, context, collector, select, cteNamesUpper, naturalOrder);
         }
 
         if (select instanceof SetOperationList setOperationList && setOperationList.getSelects() != null) {
@@ -118,31 +121,83 @@ public final class SelectStatementExtractor implements StatementExtractor {
             if (sourceExpr.isBlank() || targetVar.isBlank()) {
                 continue;
             }
-            String sourceToken = sourceExpr;
             try {
-                Expression expr = CCJSqlParserUtil.parseExpression(sourceExpr);
-                if (expr instanceof Column col && col.getColumnName() != null && !col.getColumnName().isBlank()) {
-                    sourceToken = col.getColumnName();
-                }
+                Expression expr = parseSelectIntoExpression(sourceExpr);
+                MappingRelationshipSupport.addConciseMappingRows(
+                        RelationshipType.VARIABLE_SET_MAP,
+                        routineName,
+                        TargetObjectType.VARIABLE,
+                        targetVar,
+                        expr,
+                        parsedStatement,
+                        context,
+                        collector,
+                        naturalOrder + i
+                );
             } catch (Exception ignored) {
-                // Keep original token.
+                LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), sourceExpr, naturalOrder + i);
+                collector.addDraft(new RowDraft(
+                        ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
+                        ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
+                        sourceExpr,
+                        TargetObjectType.VARIABLE,
+                        routineName,
+                        targetVar,
+                        RelationshipType.VARIABLE_SET_MAP,
+                        anchor.lineNo(),
+                        anchor.lineContent(),
+                        ConfidenceLevel.PARSER,
+                        ObjectRelationshipSupport.statementOrder(context, parsedStatement),
+                        naturalOrder + i
+                ));
             }
-            LineAnchorResolver.LineAnchor anchor = LineAnchorResolver.token(parsedStatement.slice(), sourceExpr, naturalOrder + i);
-            collector.addDraft(new RowDraft(
-                    ObjectRelationshipSupport.sourceObjectType(parsedStatement.slice()),
-                    ObjectRelationshipSupport.sourceObjectName(parsedStatement.slice()),
-                    sourceToken,
-                    TargetObjectType.VARIABLE,
-                    routineName,
-                    targetVar,
-                    RelationshipType.VARIABLE_SET_MAP,
-                    anchor.lineNo(),
-                    anchor.lineContent(),
-                    ConfidenceLevel.PARSER,
-                    ObjectRelationshipSupport.statementOrder(context, parsedStatement),
-                    naturalOrder + i
+        }
+    }
+
+    private Expression parseSelectIntoExpression(String sourceExpr) throws Exception {
+        try {
+            return CCJSqlParserUtil.parseExpression(sourceExpr);
+        } catch (Exception ignored) {
+            Select wrapped = (Select) CCJSqlParserUtil.parse("SELECT " + sourceExpr + " FROM SYSIBM.SYSDUMMY1");
+            if (wrapped instanceof PlainSelect plainSelect
+                    && plainSelect.getSelectItems() != null
+                    && !plainSelect.getSelectItems().isEmpty()
+                    && plainSelect.getSelectItems().get(0).getExpression() != null) {
+                return plainSelect.getSelectItems().get(0).getExpression();
+            }
+            throw ignored;
+        }
+    }
+
+    private int emitSelectIntoReadObjects(ParsedStatementResult parsedStatement,
+                                          ExtractionContext context,
+                                          RowCollector collector,
+                                          Select select,
+                                          Set<String> cteNamesUpper,
+                                          int naturalOrder) {
+        Set<String> readObjects = new HashSet<>(new TablesNamesFinder().getTables((net.sf.jsqlparser.statement.Statement) select));
+        boolean hasNonDummyTable = readObjects.stream()
+                .anyMatch(table -> !"SYSIBM.SYSDUMMY1".equalsIgnoreCase(table));
+        for (String objectName : readObjects) {
+            if (hasNonDummyTable && "SYSIBM.SYSDUMMY1".equalsIgnoreCase(objectName)) {
+                continue;
+            }
+            RelationshipType relationship = RelationshipType.SELECT_TABLE;
+            TargetObjectType targetType = context.schemaMetadataService()
+                    .resolveObjectType(objectName)
+                    .orElse(TargetObjectType.TABLE);
+            if (targetType == TargetObjectType.VIEW) {
+                relationship = RelationshipType.SELECT_VIEW;
+            }
+            if (cteNamesUpper.contains(objectName.toUpperCase(Locale.ROOT))) {
+                relationship = RelationshipType.CTE_READ;
+                targetType = TargetObjectType.CTE;
+            }
+            collector.addDraft(ObjectRelationshipSupport.objectLevelDraft(
+                    context, parsedStatement, relationship, targetType, objectName, naturalOrder++
             ));
         }
+        return naturalOrder;
     }
 
     private static List<String> splitArgs(String raw) {
