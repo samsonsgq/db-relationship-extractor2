@@ -645,6 +645,24 @@ class PrTestDemoProceduralLineageTest {
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
                 && r.lineNo() == 741
                 && "cv_exercise_date".equalsIgnoreCase(r.sourceField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && r.lineNo() == 795
+                && "ld_biz_date".equalsIgnoreCase(r.sourceField())
+                && "RPT.PR_TEST_DEMO".equalsIgnoreCase(r.targetObject())
+                && "ld_biz_date".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && r.lineNo() == 796
+                && "p_product_type".equalsIgnoreCase(r.sourceField())
+                && "RPT.PR_TEST_DEMO".equalsIgnoreCase(r.targetObject())
+                && "p_product_type".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_EXPR
+                && r.lineNo() == 797
+                && "p_deal_type".equalsIgnoreCase(r.sourceField())
+                && "RPT.PR_TEST_DEMO".equalsIgnoreCase(r.targetObject())
+                && "p_deal_type".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.SELECT_TABLE
+                && r.lineNo() == 799
+                && "TEMP.TEST_EVENT_MASTER_P".equalsIgnoreCase(r.targetObject())));
         assertSelectExprRowsBeforeInsertSelectMapRows(rows, 541);
         assertSelectExprRowsBeforeInsertSelectMapRows(rows, 716);
         assertSelectExprRowsBeforeInsertSelectMapRows(rows, 741);

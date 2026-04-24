@@ -519,9 +519,24 @@ final class RoutineLineageSupport {
         }
         if (statement instanceof Merge merge) {
             addFocusedExpressionRows(RelationshipType.MERGE_MATCH, merge.getOnCondition(), nestedParsed, context, collector, " ON ");
+            addFocusedRowsFromMergeSource(merge, nestedParsed, context, collector);
             addFocusedRowsFromMerge(merge, nestedParsed, context, collector);
             OwnershipResolution mergeResolution = buildOwnershipResolution(merge, context, ObjectRelationshipSupport.sourceObjectName(nestedParsed.slice()));
             addFocusedWhereRowsFromMergeSource(merge, nestedParsed, context, collector, mergeResolution);
+        }
+    }
+
+    private static void addFocusedRowsFromMergeSource(Merge merge,
+                                                      ParsedStatementResult parsedStatement,
+                                                      ExtractionContext context,
+                                                      RowCollector collector) {
+        if (merge == null || merge.getFromItem() == null) {
+            return;
+        }
+        if (merge.getFromItem() instanceof ParenthesedSelect parenthesedSelect) {
+            addFocusedRowsFromSelect(parenthesedSelect.getSelect(), parsedStatement, context, collector, false);
+        } else if (merge.getFromItem() instanceof Select select) {
+            addFocusedRowsFromSelect(select, parsedStatement, context, collector, false);
         }
     }
 
