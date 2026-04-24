@@ -156,7 +156,8 @@ class ProceduralCoverageIntegrationTest {
 
         assertTrue(rows.stream().anyMatch(inProcedure.and(row ->
                 "CURSOR_DEFINE".equals(row.get("relationship"))
-                        && "c_demo".equalsIgnoreCase(row.get("target_object")))),
+                        && "c_demo".equalsIgnoreCase(row.get("target_object"))
+                        && "PARSER".equals(row.get("confidence")))),
                 "DECLARE cursor should emit CURSOR_DEFINE");
 
         assertTrue(rows.stream().anyMatch(inProcedure.and(row ->

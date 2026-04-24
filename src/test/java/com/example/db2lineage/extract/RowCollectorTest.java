@@ -11,6 +11,7 @@ import org.junit.jupiter.api.Test;
 import java.util.List;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class RowCollectorTest {
 
@@ -135,6 +136,45 @@ class RowCollectorTest {
         List<RelationshipRow> rows = collector.finalizeRows();
         assertEquals(1, rows.size());
         assertEquals(ConfidenceLevel.PARSER, rows.get(0).confidence());
+    }
+
+    @Test
+    void finalizeRowsDropsRegexWhenParserEquivalentOnlyDiffersByLineContentWhitespace() {
+        RowCollector collector = new RowCollector();
+
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "",
+                TargetObjectType.CURSOR,
+                "c_event_detail",
+                "",
+                RelationshipType.CURSOR_DEFINE,
+                139,
+                "    DECLARE c_event_detail CURSOR FOR",
+                ConfidenceLevel.REGEX,
+                0,
+                0
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "",
+                TargetObjectType.CURSOR,
+                "c_event_detail",
+                "",
+                RelationshipType.CURSOR_DEFINE,
+                139,
+                "DECLARE c_event_detail CURSOR FOR",
+                ConfidenceLevel.PARSER,
+                0,
+                1
+        ));
+
+        List<RelationshipRow> rows = collector.finalizeRows();
+        assertEquals(1, rows.size());
+        assertEquals(ConfidenceLevel.PARSER, rows.get(0).confidence());
+        assertTrue(rows.get(0).lineContent().contains("DECLARE c_event_detail CURSOR FOR"));
     }
 
     private static RowDraft draft(
