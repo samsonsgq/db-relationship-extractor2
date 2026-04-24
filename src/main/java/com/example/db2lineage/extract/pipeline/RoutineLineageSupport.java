@@ -1120,18 +1120,21 @@ final class RoutineLineageSupport {
         if (select instanceof PlainSelect plainSelect && plainSelect.getSelectItems() != null && !targetColumns.isEmpty()) {
             int mappingSlots = Math.min(targetColumns.size(), plainSelect.getSelectItems().size());
             final int mappingBaseOrder = 1;
-            int searchLine = parsedStatement.slice().startLine();
+            List<Integer> expressionStartLines = resolveInsertSelectExpressionStartLines(
+                    plainSelect,
+                    mappingSlots,
+                    parsedStatement.slice()
+            );
             for (int i = 0; i < mappingSlots; i++) {
                 var selectItem = plainSelect.getSelectItems().get(i);
                 if (selectItem.getExpression() == null) {
                     continue;
                 }
                 Expression expression = selectItem.getExpression();
-                int expressionLine = findExpressionLine(parsedStatement.slice(), expression.toString(), searchLine);
-                int mappingStartLine = expressionLine > 0 ? expressionLine : searchLine;
-                int mappingEndLine = expressionLine > 0 ? expressionLine : parsedStatement.slice().endLine();
-                if (expressionLine > 0) {
-                    searchLine = expressionLine + 1;
+                int mappingStartLine = i < expressionStartLines.size() ? expressionStartLines.get(i) : parsedStatement.slice().startLine();
+                int mappingEndLine = parsedStatement.slice().endLine();
+                if (i + 1 < expressionStartLines.size()) {
+                    mappingEndLine = Math.max(mappingStartLine, expressionStartLines.get(i + 1) - 1);
                 }
                 MappingRelationshipSupport.addConciseMappingRows(
                         RelationshipType.INSERT_SELECT_MAP,
@@ -1182,6 +1185,41 @@ final class RoutineLineageSupport {
         if (select != null) {
             addFocusedRowsFromSelect(select, parsedStatement, context, collector);
         }
+    }
+
+    private static List<Integer> resolveInsertSelectExpressionStartLines(PlainSelect plainSelect,
+                                                                         int mappingSlots,
+                                                                         StatementSlice slice) {
+        List<Integer> startLines = new ArrayList<>();
+        int searchLine = slice.startLine();
+        for (int i = 0; i < mappingSlots; i++) {
+            var selectItem = plainSelect.getSelectItems().get(i);
+            if (selectItem.getExpression() == null) {
+                startLines.add(searchLine);
+                continue;
+            }
+            Expression expression = selectItem.getExpression();
+            List<ExpressionTokenSupport.TokenUse> tokenUses = MappingRelationshipSupport.conciseMappingTokens(
+                    expression,
+                    slice,
+                    RelationshipType.INSERT_SELECT_MAP,
+                    searchLine,
+                    slice.endLine()
+            );
+            int fallbackSearchLine = searchLine;
+            int expressionStartLine = tokenUses.stream()
+                    .mapToInt(ExpressionTokenSupport.TokenUse::lineNo)
+                    .min()
+                    .orElseGet(() -> findExpressionLine(slice, expression.toString(), fallbackSearchLine));
+            if (expressionStartLine < searchLine) {
+                expressionStartLine = searchLine;
+            }
+            startLines.add(expressionStartLine);
+            if (expressionStartLine < slice.endLine()) {
+                searchLine = expressionStartLine + 1;
+            }
+        }
+        return List.copyOf(startLines);
     }
 
     private static List<Expression> resolveInsertValuesExpressions(Select select) {

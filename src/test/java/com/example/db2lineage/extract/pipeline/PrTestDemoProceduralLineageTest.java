@@ -583,6 +583,9 @@ class PrTestDemoProceduralLineageTest {
                 && r.lineNo() == 293
                 && "PREMIUM_DATE".equalsIgnoreCase(r.sourceField())
                 && "EVENT_DATE".equalsIgnoreCase(r.targetField())));
+        assertTrue(rows.stream().noneMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
+                && r.lineNo() == 284
+                && "EVENT_DATE".equalsIgnoreCase(r.targetField())));
         assertTrue(rows.stream().anyMatch(r -> r.relationship() == RelationshipType.INSERT_SELECT_MAP
                 && r.lineNo() == 294
                 && "EXERCISE_DATE".equalsIgnoreCase(r.sourceField())
