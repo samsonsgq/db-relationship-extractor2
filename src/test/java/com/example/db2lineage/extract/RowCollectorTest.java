@@ -99,6 +99,44 @@ class RowCollectorTest {
         assertEquals(2, rows.get(2).lineRelationSeq());
     }
 
+    @Test
+    void finalizeRowsPrefersParserWhenRegexAndParserEmitSameSemanticRow() {
+        RowCollector collector = new RowCollector();
+
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "",
+                TargetObjectType.TABLE,
+                "TEMP.TEST_EVENT_MASTER_P",
+                "",
+                RelationshipType.SELECT_TABLE,
+                897,
+                "          FROM TEMP.TEST_EVENT_MASTER_P MAST",
+                ConfidenceLevel.REGEX,
+                0,
+                0
+        ));
+        collector.addDraft(new RowDraft(
+                SourceObjectType.PROCEDURE,
+                "RPT.PR_TEST_DEMO",
+                "",
+                TargetObjectType.TABLE,
+                "TEMP.TEST_EVENT_MASTER_P",
+                "",
+                RelationshipType.SELECT_TABLE,
+                897,
+                "          FROM TEMP.TEST_EVENT_MASTER_P MAST",
+                ConfidenceLevel.PARSER,
+                0,
+                1
+        ));
+
+        List<RelationshipRow> rows = collector.finalizeRows();
+        assertEquals(1, rows.size());
+        assertEquals(ConfidenceLevel.PARSER, rows.get(0).confidence());
+    }
+
     private static RowDraft draft(
             String sourceObject,
             String sourceField,

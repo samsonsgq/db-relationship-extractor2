@@ -27,7 +27,11 @@ public final class RowCollector {
     public List<RelationshipRow> finalizeRows() {
         Map<SemanticKey, RowDraft> deduplicated = new LinkedHashMap<>();
         for (RowDraft draft : drafts) {
-            deduplicated.putIfAbsent(SemanticKey.from(draft), draft);
+            SemanticKey key = SemanticKey.from(draft);
+            RowDraft existing = deduplicated.get(key);
+            if (existing == null || shouldReplace(existing, draft)) {
+                deduplicated.put(key, draft);
+            }
         }
 
         List<RowDraft> filteredDrafts = suppressNearbyRegexDuplicates(new ArrayList<>(deduplicated.values()));
@@ -70,6 +74,11 @@ public final class RowCollector {
 
         finalized.sort(RelationshipRow.STABLE_OUTPUT_COMPARATOR);
         return List.copyOf(finalized);
+    }
+
+    private static boolean shouldReplace(RowDraft existing, RowDraft candidate) {
+        return existing.confidence() == com.example.db2lineage.model.ConfidenceLevel.REGEX
+                && candidate.confidence() == com.example.db2lineage.model.ConfidenceLevel.PARSER;
     }
 
     private static List<RowDraft> suppressUnknownWhenResolvedExists(List<RowDraft> rows) {
@@ -257,8 +266,7 @@ public final class RowCollector {
             String targetField,
             com.example.db2lineage.model.RelationshipType relationship,
             int lineNo,
-            String lineContent,
-            com.example.db2lineage.model.ConfidenceLevel confidence
+            String lineContent
     ) {
         private static SemanticKey from(RowDraft draft) {
             return new SemanticKey(
@@ -270,8 +278,7 @@ public final class RowCollector {
                     draft.targetField(),
                     draft.relationship(),
                     draft.lineNo(),
-                    draft.lineContent(),
-                    draft.confidence()
+                    draft.lineContent()
             );
         }
     }
